@@ -67,16 +67,15 @@
 
 \newcommand{\codesize}{\fontsize{\bodyfontsize}{\bodybaselineskip}}
 
-% Syntax highlighting for ARM asm (minted doesn't do this well)
+% Syntax highlighting for Arm asm (minted doesn't do this well)
 \usepackage{listings}
 \lstset{
 basicstyle=\ttfamily\codesize\selectfont,
 keywordstyle=\color{darkGreen}\bfseries,
 commentstyle=\textcolor[rgb]{0.25,0.50,0.50}
 }
-% listings definitions for ARM assembly.
-% Get them from https://github.com/frosc/arm-assembler-latex-listings,
-% install as shown at http://tex.stackexchange.com/a/1138/92465
+% listings definitions for Arm assembly.
+% Get them from https://github.com/sysprog21/arm-assembler-latex-listings .
 \usepackage{lstlangarm} % See above
 
 \usepackage{changepage} % For adjustwidth
@@ -588,7 +587,7 @@ Different hardware architectures provide different ordering guarantees,
 or \introduce{memory models}.
 For example, x64 is relatively \introduce{strongly-ordered},
 and can be trusted to preserve some system-wide order of loads and stores in most cases.
-Other architectures like \textsc{arm} are \introduce{weakly-ordered},
+Other architectures like \textsc{Arm} are \introduce{weakly-ordered},
 so you can not assume that loads and stores are executed in program order unless the \textsc{cpu} is given special instructions---
 called \introduce{memory barriers}---to not shuffle them around.
 
@@ -597,7 +596,7 @@ both to understand what's happening in hardware,
 and to see why the \clang{} and \cplusplus{} concurrency models were designed as they were.\punckern\footnote{%
 It is worth noting that the concepts we discuss here are not specific to \clang{} and \cplusplus{}.
 Other systems programming languages like D and Rust have converged on similar models.}
-Let's examine \textsc{arm}, since it is both popular and straightforward.
+Let's examine \textsc{Arm}, since it is both popular and straightforward.
 Consider the simplest atomic operations: loads and stores.
 Given some \mintinline{cpp}{atomic_int foo},
 % Shield your eyes.
@@ -667,8 +666,8 @@ and the second ensures that subsequent reads and writes can not be placed before
 
 Like many other \textsc{risc}\footnote{%
 \introduce{Reduced instruction set computer},
-in contrast to a \introduce{complex instruction set computer} \textsc{(cisc)} architecture like x64.}
-architectures, \textsc{arm} lacks dedicated \textsc{rmw} instructions.
+in contrast to a \introduce{complex instruction set computer} \textsc{(cisc)} architecture like x64.} architectures,
+\textsc{Arm} lacks dedicated \textsc{rmw} instructions.
 And since the processor can context switch to another thread at any time,
 we can not build \textsc{rmw} ops from normal loads and stores.
 Instead, we need special instructions:
@@ -677,7 +676,7 @@ The two work in tandem:
 A load-link reads a value from an address---like any other load---but also instructs the processor to monitor that address.
 Store-conditional writes the given value \emph{only if} no other stores were made to that address since the corresponding load-link.
 Let's see them in action with an atomic fetch and add.
-On \textsc{arm},
+On \textsc{Arm},
 \begin{colfigure}
 \begin{minted}[fontsize=\codesize]{cpp}
 void incFoo() { ++foo; }
@@ -752,7 +751,7 @@ since we do not care about the difference between retries from spurious \textsc{
 \label{lock-example}
 
 All of our examples so far have been sequentially consistent to prevent reorderings that break our code.
-We've also seen how weakly-ordered architectures like \textsc{arm} use memory barriers to create sequential consistency.
+We have also seen how weakly-ordered architectures like \textsc{Arm} use memory barriers to create sequential consistency.
 But as you might expect,
 these barriers can have a noticeable impact on performance.
 After all,
@@ -1083,7 +1082,7 @@ if (p != nullptr) {
 }
 \end{minted}
 \end{colfigure}
-and an \textsc{arm} compiler could emit:
+and an \textsc{Arm} compiler could emit:
 \begin{colfigure}
 \begin{lstlisting}[language={[ARM]Assembler}]
   ldr r3, &peripherals
@@ -1130,10 +1129,10 @@ Otherwise, be sure to give your code extra review and testing.
 
 \section{Hardware convergence}
 
-Those familiar with \textsc{arm} may have noticed that all assembly shown here is for the seventh version of the architecture.
+Those familiar with \textsc{Arm} may have noticed that all assembly shown here is for the seventh version of the architecture.
 Excitingly, the eighth generation offers massive improvements for lockless code.
 Since most programming languages have converged on the memory model we have been exploring,
-\textsc{arm}v8 processors offer dedicated load-acquire and store-release instructions: \keyword{lda} and \keyword{stl}.
+\textsc{Arm}v8 processors offer dedicated load-acquire and store-release instructions: \keyword{lda} and \keyword{stl}.
 Hopefully, future \textsc{cpu} architectures will follow suit.
 
 \section{Cache effects and false sharing}
