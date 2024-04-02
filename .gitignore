@@ -2,7 +2,7 @@ _minted*/
 *.aux
 *.log
 *.out
-*.pdf
+concurrency-primer.pdf
 *.toc
 *.fls
 *.fdb_latexmk
