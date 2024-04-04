@@ -318,7 +318,8 @@ For it to work, the ``ready'' flag needs to use an \introduce{atomic type}.
 int v = 0;
 atomic_bool v_ready = false;
 
-void *threadA() {
+void *threadA()
+	{
     v = 42;
     v_ready = true;
 }
@@ -328,7 +329,8 @@ void *threadA() {
 \begin{minted}[fontsize=\codesize]{c}
 int bv;
 
-void *threadB() {
+void *threadB()
+{
     while(!v_ready) { /* wait */ }
     bv = v;
     /* Do something */
@@ -373,7 +375,7 @@ atomicity is fairly straightforward:
 just make sure that any variables used for thread synchronization
 are no larger than the \textsc{cpu} word size.
 
-\section{Arbitrarily-sized “atomic” types}
+\section{Arbitrarily-sized ``atomic'' types}
 
 Along with \texttt{atomic\_int} and friends,
 \cplusplus{} provides the template \texttt{std::atomic<T>} for defining arbitrary atomic types.
@@ -398,8 +400,7 @@ this information is known at compile time.
 Consequently, \cplusplus{17} added \texttt{is\_always\_lock\_free}:
 \begin{colfigure}
 \begin{minted}[fontsize=\codesize]{cpp}
-static_assert(
-  std::atomic<Foo>::is_always_lock_free);
+static_assert(std::atomic<Foo>::is_always_lock_free);
 \end{minted}
 \end{colfigure}
 
@@ -453,10 +454,10 @@ void lock()
 void unlock() { atomic_flag_clear(&af); }
 \end{minted}
 \end{colfigure}
-If we call \mintinline{cpp}{lock()} and the previous value is \mintinline{cpp}{false},
+If we call \mintinline{c}{lock()} and the previous value is \mintinline{c}{false},
 we are the first to acquire the lock,
 and can proceed with exclusive access to whatever the lock protects.
-If the previous value is \mintinline{cpp}{true},
+If the previous value is \mintinline{c}{true},
 someone else has acquired the lock and we must wait until they release it by clearing the flag.
 
 \subsection{Fetch and…}
@@ -636,7 +637,7 @@ getFoo:
 \begin{minted}[fontsize=\codesize]{cpp}
 void setFoo(int i)
 {
-  foo = i;
+    foo = i;
 }
 \end{minted}
 \end{minipage}
@@ -1344,7 +1345,7 @@ Available as a writeup,
 \textsc{n}4455}, and as a
 \href{https://www.youtube.com/watch?v=IB57wIf9W1k}{CppCon talk}.
 
-\href{http://en.cppreference.com}{cppreference.com},
+\href{https://en.cppreference.com}{cppreference.com},
 an excellent reference for the \clang{} and \cplusplus{} memory model and atomic \textsc{api}.
 
 \href{https://godbolt.org/}{Matt Godbolt's Compiler Explorer},
