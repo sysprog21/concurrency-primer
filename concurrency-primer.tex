@@ -494,7 +494,7 @@ bool atomic<T>::compare_exchange_strong(
 
 \begin{samepage}
 \noindent The \texttt{\_strong} suffix may leave you wondering if there is a corresponding ``weak'' \textsc{CAS}.
-Indeed, there is. However, we will delve into that topic later in \secref{spurious-ll/sc-failures}.
+Indeed, there is. However, we will delve into that topic later in \secref{spurious-llsc-failures}.
 \end{samepage}
 
 Let's say we have some long-running task that we might want to cancel.
@@ -657,7 +657,7 @@ Like many \textsc{RISC}\footnote{%
 } architectures, \textsc{Arm} does not have dedicated \textsc{RMW} instructions.
 Given that the processor may switch contexts to another thread at any moment,
 constructing \textsc{RMW} operations from standard loads and stores is not feasible.
-Special instructions are required instead: \introduce{load-link} and \introduce{store-conditional} (\textsc{ll/sc}).
+Special instructions are required instead: \introduce{load-link} and \introduce{store-conditional} (\textsc{LL/SC}).
 These instructions are complementary:
 load-link performs a read operation from an address, similar to any load,
 but it also signals the processor to watch that address.
@@ -684,26 +684,24 @@ loop:
   bx lr
 \end{lstlisting}
 \end{colfigure}
-We \textsc{ll} the current value, add one, and immediately try to store it back with a \textsc{sc}.
-If that fails, another thread may have written to \texttt{foo} since our \textsc{ll}, so we try again.
+We \textsc{LL} the current value, add one, and immediately try to store it back with a \textsc{SC}.
+If that fails, another thread may have written to \texttt{foo} since our \textsc{LL}, so we try again.
 In this way, at least one thread is always making forward progress in atomically modifying \texttt{foo},
 even if several are attempting to do so at once.\punckern\footnote{%
 \ldots though generally,
 we want to avoid cases where multiple threads are vying for the same variable for any significant amount of time.}
 
 \subsection{Spurious LL/SC failures}
-\label{spurious-ll/sc-failures}
+\label{spurious-llsc-failures}
 
-As you might imagine, it would take too much \textsc{CPU} hardware to track load-linked addresses for every single byte on the machine.
-To reduce this cost, many processors monitor them at some coarser granularity,
-such as the cache line.
-This means that a \textsc{sc} can fail if it is preceded by a write to \emph{any} address in the monitored block,
-not just the specific one that was load-linked.
+It is impractical for \textsc{CPU} hardware to track load-linked addresses for each byte within a system due to the immense resource requirements.
+To mitigate this, many processors monitor these operations at a broader scale, like the cache line level.
+Consequently, a \textsc{SC} operation may fail if any part of the monitored block is written to,
+not just the specific address that was load-linked.
 
-This is especially troublesome for compare and swap,
-and is the raison d'être for \monobox{compare\_exchange\_weak}.
-To see why, consider a function that atomically multiplies a value,
-even though there's no atomic instruction to read-multiply-write in any common architecture.
+This limitation poses a particular challenge for operations like compare and swap,
+highlighting the essential purpose of \monobox{compare\_exchange\_weak}.
+Consider, for example, the task of atomically multiplying a value without an architecture-specific atomic read-multiply-write instruction.
 \begin{colfigure}
 \begin{minted}[fontsize=\codesize]{cpp}
 void atomicMultiply(int by)
@@ -727,13 +725,13 @@ They:
 \end{enumerate}
 If we use \monobox{compare\_exchange\_strong} for this family of algorithms,
 the compiler must emit nested loops:
-an inner one to protect us from spurious \textsc{sc} failures,
+an inner one to protect us from spurious \textsc{SC} failures,
 and an outer one which repeatedly performs our operation until no other thread has interrupted us.
 But unlike the \monobox{\_strong} version,
-a weak \textsc{CAS} is allowed to fail spuriously, just like the \textsc{ll/sc} mechanism that implements it.
+a weak \textsc{CAS} is allowed to fail spuriously, just like the \textsc{LL/SC} mechanism that implements it.
 So, with \monobox{compare\_exchange\_weak},
 the compiler is free to generate a single loop,
-since we do not care about the difference between retries from spurious \textsc{sc} failures and retries caused by another thread modifying our variable.
+since we do not care about the difference between retries from spurious \textsc{SC} failures and retries caused by another thread modifying our variable.
 
 \section{Do we always need sequentially consistent operations?}
 \label{lock-example}
