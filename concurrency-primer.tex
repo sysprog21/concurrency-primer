@@ -416,17 +416,16 @@ the current value is read and replaced with a new one.
 To see where this might be useful,
 let's tweak our example from \secref{atomicity}:
 instead of displaying the total number of processed files,
-the \textsc{ui} might want to show how many were processed per second.
-We could implement this by having the \textsc{ui} thread read the counter then zero it each second.
+the \textsc{UI} might want to show how many were processed per second.
+We could implement this by having the \textsc{UI} thread read the counter then zero it each second.
 But we could get the following race condition if reading and zeroing are separate steps:
 \begin{enumerate}
-\item The \textsc{ui} thread reads the counter.
-\item Before the \textsc{ui} thread has the chance to zero it,
-      the worker thread increments it again.
-\item The \textsc{ui} thread now zeroes the counter, and the previous increment
-      is lost.
+  \item The \textsc{UI} thread reads the counter.
+  \item Before the \textsc{UI} thread has the chance to zero it,
+        the worker thread increments it again.
+  \item The \textsc{UI} thread now zeroes the counter, and the previous increment is lost.
 \end{enumerate}
-If the \textsc{ui} thread atomically exchanges the current value with zero,
+If the \textsc{UI} thread atomically exchanges the current value with zero,
 the race disappears.
 
 \subsection{Test and set}
@@ -462,10 +461,10 @@ or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous valu
 all as part of a single atomic operation.
 You might recall from the exchange example that additions by the worker thread must be atomic to prevent races, where:
 \begin{enumerate}
-\item The worker thread loads the current counter value and adds one.
-\item Before that thread can store the value back,
-      the \textsc{ui} thread zeroes the counter.
-\item The worker now performs its store, as if the counter was never cleared.
+  \item The worker thread loads the current counter value and adds one.
+  \item Before that thread can store the value back,
+        the \textsc{UI} thread zeroes the counter.
+  \item The worker now performs its store, as if the counter was never cleared.
 \end{enumerate}
 
 \subsection{Compare and swap}
@@ -718,10 +717,10 @@ void atomicMultiply(int by)
 Many lockless algorithms use \textsc{CAS} loops like this to atomically update a variable when calculating its new value is not atomic.
 They:
 \begin{enumerate}
-\item Read the variable.
-\item Perform some (non-atomic) operation on its value.
-\item \textsc{CAS} the new value with the previous one.
-\item If the \textsc{CAS} failed, another thread beat us to the punch, so try again.
+  \item Read the variable.
+  \item Perform some (non-atomic) operation on its value.
+  \item \textsc{CAS} the new value with the previous one.
+  \item If the \textsc{CAS} failed, another thread beat us to the punch, so try again.
 \end{enumerate}
 If we use \monobox{compare\_exchange\_strong} for this family of algorithms,
 the compiler must emit nested loops:
@@ -988,14 +987,12 @@ void dec()
 Order does not matter when incrementing the reference count since no action is taken as a result.
 However, when we decrement, we must ensure that:
 \begin{enumerate}
-\item All access to the referenced object happens
-\emph{before} the count reaches zero.
-\item Deletion happens \emph{after} the reference count reaches
-    zero.\punckern\footnote{This can be optimized even further by
-    making the acquire barrier only occur conditionally, when the reference
-    count is zero.
-    Standalone barriers are outside the scope of this paper,
-    since they are almost always pessimal compared to a combined load-acquire or store-release.}
+  \item All access to the referenced object happens \emph{before} the count reaches zero.
+  \item Deletion happens \emph{after} the reference count reaches zero.\punckern\footnote{%
+        This can be optimized even further by making the acquire barrier only occur conditionally,
+        when the reference count is zero.
+        Standalone barriers are outside the scope of this paper,
+        since they are almost always pessimal compared to a combined load-acquire or store-release.}
 \end{enumerate}
 
 Curious readers might be wondering about the difference between acquire-release and sequentially consistent operations.
@@ -1170,33 +1167,31 @@ where hardware translates reads and writes to certain addresses into instruction
 (This is how most machines ultimately interact with the outside world.)
 \keyword{volatile} implies two guarantees:
 \begin{enumerate}
-\item The compiler will not elide loads and stores that seem ``unnecessary''\quotekern.
-    For example, if I have some function:
-    \begin{colfigure}
-    \begin{minted}[fontsize=\codesize,autogobble]{cpp}
-    void write(int *t)
-    {
-        *t = 2;
-        *t = 42;
-    }
-    \end{minted}
-    \end{colfigure}
-    the compiler would normally optimize it to:
-    \begin{minted}[fontsize=\codesize,autogobble]{cpp}
-    void write(int *t)
-    {
-        *t = 42;
-    }
-    \end{minted}
-    \mintinline{cpp}{*t = 2} is often considered a \introduce{dead store},
-    seemingly performing no function.
-    However, when \texttt{t} is directed at an \textsc{MMIO} register,
-    this assumption becomes unsafe.
-    In such cases, each write operation could potentially influence the behavior of the associated hardware.
+  \item The compiler will not elide loads and stores that seem ``unnecessary''\quotekern.
+        For example, if I have some function:
+        \begin{colfigure}
+        \begin{minted}[fontsize=\codesize,autogobble]{cpp}
+        void write(int *t)
+        {
+            *t = 2;
+            *t = 42;
+        }
+        \end{minted}
+        \end{colfigure}
+        the compiler would normally optimize it to:
+        \begin{minted}[fontsize=\codesize,autogobble]{cpp}
+        void write(int *t)
+        {
+            *t = 42;
+        }
+        \end{minted}
+        \mintinline{cpp}{*t = 2} is often considered a \introduce{dead store},
+        seemingly performing no function.
+        However, when \texttt{t} is directed at an \textsc{MMIO} register,
+        this assumption becomes unsafe.
+        In such cases, each write operation could potentially influence the behavior of the associated hardware.
 
-\item The compiler will not reorder \keyword{volatile}
-    reads and writes with respect to other \keyword{volatile} ones
-    for similar reasons.
+  \item The compiler will not reorder \keyword{volatile} reads and writes with respect to other \keyword{volatile} ones for similar reasons.
 \end{enumerate}
 
 These rules fall short of providing the atomicity and order required for safe communication between threads.
