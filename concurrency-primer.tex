@@ -405,7 +405,7 @@ we read it, set it to \cpp|true|, and provide the value it held beforehand.
 \clang{} and \cplusplus{} offer a type dedicated to this purpose, called \monobox{atomic\_flag}.
 We could use it to build a simple spinlock:
 \label{spinlock}
-\begin{cppcode}
+\begin{ccode}
 atomic_flag af = ATOMIC_FLAG_INIT;
 
 void lock()
@@ -414,7 +414,7 @@ void lock()
 }
 
 void unlock() { atomic_flag_clear(&af); }
-\end{cppcode}
+\end{ccode}
 If we call \cc|lock()| and the previous value is \cc|false|,
 we are the first to acquire the lock,
 and can proceed with exclusive access to whatever the lock protects.
@@ -555,7 +555,7 @@ It is worth noting that the concepts we discuss here are not specific to \clang{
 Other systems programming languages like D and Rust have converged on similar models.}
 Let's examine \textsc{Arm}, since it is both popular and straightforward.
 Consider the simplest atomic operations: loads and stores.
-Given some \cpp|atomic_int foo|,
+Given some \cc|atomic_int foo|,
 \newline
 % Shield your eyes.
 % Essentially,
@@ -564,12 +564,12 @@ Given some \cpp|atomic_int foo|,
 % 3. In the middle, place an arrow for each (futzing with height a bit)
 %    with the text "becomes" over it.
 \begin{minipage}{0.35\linewidth}
-\begin{cppcode}
+\begin{ccode}
 int getFoo()
 {
     return foo;
 }
-\end{cppcode}
+\end{ccode}
 \end{minipage}
 \raisebox{-1ex}{
 \begin{tikzpicture}
@@ -588,12 +588,12 @@ getFoo:
 \end{minipage}
 %Similarly,
 \begin{minipage}{0.35\linewidth}
-\begin{cppcode}
+\begin{ccode}
 void setFoo(int i)
 {
     foo = i;
 }
-\end{cppcode}
+\end{ccode}
 \end{minipage}
 \raisebox{-1ex}{
 \begin{tikzpicture}
@@ -631,9 +631,9 @@ Store-conditional executes a write operation only if no other writes have occurr
 This mechanism is illustrated through an atomic fetch and add example.
 
 On \textsc{Arm},
-\begin{cppcode}
+\begin{ccode}
 void incFoo() { ++foo; }
-\end{cppcode}
+\end{ccode}
 compiles to:
 \begin{lstlisting}[language={[ARM]Assembler}]
 incFoo:
@@ -759,9 +759,7 @@ becomes \cc|compare_exchange_strong_explicit()|, and so on.}
 \begin{cppcode}
 void lock()
 {
-    while (af.test_and_set(memory_order_acquire)) {
-        /* wait */
-    }
+    while (af.test_and_set(memory_order_acquire)) { /* wait */ }
 }
 
 void unlock()
