@@ -46,11 +46,7 @@
 \setkomafont{subsection}{\normalsize\itshape}
 \renewcommand*\thesection{\upshape\arabic{section}}
 
-% Use uppercase numbers for numbered lists.
-% (We're using lowercase ones for the body text.)
-% See http://tex.stackexchange.com/a/133186
 \usepackage{enumitem}
-\setlist[enumerate]{font=\addfontfeatures{Numbers=LowercaseOff}}
 
 % Custom footer
 \usepackage{scrlayer-scrpage}
@@ -123,8 +119,8 @@ The original title was ``What every systems programmer should know about concurr
 
 % C++ looks nicer if the ++ is in a monospace font and raised a bit.
 % Also, use uppercase numbers to match the capital C.
-\newcommand{\cplusplus}[1]{C\kern-0.1ex\raisebox{0.15ex}{\texttt{++}}{\addfontfeature{Numbers=LowercaseOff}#1}}
-\newcommand{\clang}[1]{C{\addfontfeature{Numbers=LowercaseOff}#1}}
+\newcommand{\cplusplus}[1]{C\kern-0.1ex\raisebox{0.15ex}{\texttt{++}}}
+\newcommand{\clang}[1]{C}
 \newcommand{\csharp}{C\raisebox{0.25ex}{\#}}
 
 \newcommand{\fig}[1]{Figure~\ref{#1}}
