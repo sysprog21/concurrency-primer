@@ -1,0 +1,39 @@
+\newminted[ccode]{c}{
+  baselinestretch=1,
+  breaklines,
+  breakafter=d,
+}
+
+\newminted[cppcode]{cpp}{
+  baselinestretch=1,
+  breaklines,
+  breakafter=d,
+}
+
+\usemintedstyle{vs}
+
+\NewDocumentCommand{\samplec}{oom}{%
+  \IfNoValueTF{#1}%
+  {%
+    \inputminted[baselinestretch=1, breaklines, breakafter=d]{c}{#3}%
+  }%
+  {%
+    \IfNoValueTF{#2}%
+    {%
+      \inputminted[baselinestretch=1, breaklines, breakafter=d, firstline=#1]{c}{#3}%
+    }%
+    {%
+      \inputminted[baselinestretch=1, breaklines, breakafter=d, firstline=#1, lastline=#2]{c}{#3}%
+    }%
+  }%
+}
+
+\newminted[shcode]{bash}{
+  baselinestretch=1.2,
+  breaklines,
+  breakafter=d,
+}
+
+\newmintinline[sh]{bash}{}
+\newmintinline[cc]{c}{}
+\newmintinline[cpp]{cpp}{}

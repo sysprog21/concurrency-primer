@@ -58,7 +58,6 @@
 \pagestyle{scrheadings}
 
 \usepackage{minted} % Syntax highlighting via Pygments
-\usemintedstyle{friendly}
 
 \usepackage{graphicx}
 \usepackage[font=footnotesize,justification=raggedright]{caption}
@@ -81,6 +80,8 @@ commentstyle=\textcolor[rgb]{0.25,0.50,0.50}
 \usepackage{changepage} % For adjustwidth
 
 \usepackage{metalogo} % for \LuaLaTeX
+
+\input{lib/codeblock}
 
 \setlength\columnsep{2em}
 %\setlength\parskip{0em}
@@ -132,15 +133,6 @@ The original title was ``What every systems programmer should know about concurr
 \newcommand{\introduce}[1]{\textit{#1}}
 
 \newcommand{\secref}[1]{\hyperref[#1]{\textsc{\S}\ref*{#1}}}
-
-% Feel free to futz with the spacing above and below these.
-% (Given the number of code snippets and figures,
-% they can really make or break the spacing of the paragraphs.
-% Keep in mind that TeX only lays out a page at a time,
-% so you need to more or less look at how each page is individually handled.
-\newenvironment{colfigure}
-  {\par\vspace{1\baselineskip minus 0.5\baselineskip}\noindent\minipage{\linewidth}}
-  {\endminipage\vspace{1\baselineskip minus 0.7\baselineskip}}
 
 % See http://tex.stackexchange.com/a/68310
 \makeatletter
@@ -198,8 +190,7 @@ Proper functioning hinges on understanding the sequence in which threads read fr
 Consider a simple scenario where thread \textit{A} communicates an integer with other threads:
 it writes the integer to a variable and then sets a flag, signaling other threads to read the newly stored value.
 This operation could be conceptualized in code as follows:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{c}
+\begin{ccode}
 int v;
 bool v_ready = false;
 
@@ -210,10 +201,9 @@ void threadA()
     v = 42;
     v_ready = true;
 }
-\end{minted}
-\end{colfigure}
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{c}
+\end{ccode}
+
+\begin{ccode}
 void threadB()
 {
     // Await a value change and read it.
@@ -221,10 +211,9 @@ void threadB()
     const int my_v = v;
     // Do something with my_v...
 }
-\end{minted}
-\end{colfigure}
-We must ensure that other threads only observe \textit{A}'s write to \texttt{v\_ready} \emph{after A's} write to \texttt{v}.
-If another thread can ``see'' \texttt{v\_ready} becoming true before observing \texttt{v} becoming $42$,
+\end{ccode}
+We must ensure that other threads only observe \textit{A}'s write to \cc|v_ready| \emph{after A's} write to \cc|v|.
+If another thread can ``see'' \cc|v_ready| becoming true before observing \cc|v| becoming $42$,
 this simple scheme will not work correctly.
 
 One might assume it is straightforward to ensure this order,
@@ -249,24 +238,20 @@ we would face challenges because our hardware complicates matters further!
 Modern \textsc{CPU}s operate in a fashion far more complex than what traditional pipelined methods,
 like those depicted in \fig{pipeline}, suggest.
 They are equipped with multiple data paths tailored for various instruction types and schedulers that reorder and direct instructions through these paths.
-\begin{colfigure}
-  \centering
-  \includegraphics[keepaspectratio,width=0.7\linewidth]{images/pipeline}
-  \captionof{figure}{A traditional five-stage \textsc{CPU} pipeline with fetch, decode, execute, memory access, and write-back stages.
-                     Modern designs are much more complicated, often reordering instructions on the fly.}
-  \label{pipeline}
-\end{colfigure}
+
+\includegraphics[keepaspectratio,width=0.7\linewidth]{images/pipeline}
+\captionof{figure}{A traditional five-stage \textsc{CPU} pipeline with fetch, decode, execute, memory access, and write-back stages.
+                   Modern designs are much more complicated, often reordering instructions on the fly.}
+\label{pipeline}
 
 It is quite common to form oversimplified views about memory operations.
 Picturing a multi-core processor setup might lead us to envision a model similar to \fig{ideal-machine},
 wherein each core alternately accesses and manipulates the system's memory.
-\begin{colfigure}
-\centering
 \includegraphics[keepaspectratio, width=0.8\linewidth]{ideal-machine}
 \captionof{figure}{An idealized multi-core processor where cores
 take turns accessing a single shared set of memory.}
 \label{ideal-machine}
-\end{colfigure}
+
 The reality is far from straightforward.
 Although processor speeds have surged exponentially in recent decades,
 \textsc{RAM} has struggled to match pace,
@@ -277,12 +262,9 @@ Ensuring this memory system remains \introduce{coherent},
 thus allowing writes made by one core to be observable by others even when utilizing different caches,
 presents a significant challenge.
 
-\begin{colfigure}
-  \centering
-  \includegraphics[keepaspectratio, width=0.8\linewidth]{images/mp-cache}
-  \captionof{figure}{A common memory hierarchy for modern multi-core processors}
-  \label{dunnington}
-\end{colfigure}
+\includegraphics[keepaspectratio, width=0.8\linewidth]{images/mp-cache}
+\captionof{figure}{A common memory hierarchy for modern multi-core processors}
+\label{dunnington}
 
 The myriad complexities within multithreaded programs on multi-core \textsc{CPU}s lead to a lack of a uniform concept of ``now''.
 Establishing some semblance of order among threads requires a concerted effort involving the hardware,
@@ -306,21 +288,18 @@ with some minor syntactical differences favoring \cplusplus{} for clarity.
 
 To ensure our earlier example functions as intended,
 the ``ready'' flag must utilize an \introduce{atomic type}.
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{c}
+\begin{ccode}
 #include <stdatomic.h>
 int v = 0;
 atomic_bool v_ready = false;
 
 void *threadA()
-	{
+{
     v = 42;
     v_ready = true;
 }
-\end{minted}
-\end{colfigure}
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{c}
+\end{ccode}
+\begin{ccode}
 int bv;
 
 void *threadB()
@@ -329,9 +308,8 @@ void *threadB()
     bv = v;
     /* Do something */
 }
-\end{minted}
-\end{colfigure}
-The \clang{} and \cplusplus{} standard libraries define a series of these types in \mintinline{c}{<stdatomic.h>} and \mintinline{cpp}{<atomic>},
+\end{ccode}
+The \clang{} and \cplusplus{} standard libraries define a series of these types in \cc|<stdatomic.h>| and \cpp|<atomic>|,
 respectively.
 They look and act just like the integer types they mirror (e.g., \monobox{bool}~\textrightarrow~\monobox{atomic\_bool},
 \monobox{int}~\textrightarrow~\monobox{atomic\_int}, etc.),
@@ -371,8 +349,8 @@ are no larger than the \textsc{CPU} word size.
 
 \section{Arbitrarily-sized ``atomic'' types}
 
-Along with \texttt{atomic\_int} and friends,
-\cplusplus{} provides the template \texttt{std::atomic<T>} for defining arbitrary atomic types.
+Along with \cc|atomic_int| and friends,
+\cplusplus{} provides the template \cpp|std::atomic<T>| for defining arbitrary atomic types.
 \clang{}, lacking a similar language feature but wanting to provide the same functionality,
 added an \keyword{\_Atomic} keyword.
 If \texttt{T} is larger than the machine's word size,
@@ -381,22 +359,18 @@ If you want to make sure this is not happening,\punckern\footnote{%
 \ldots which is most of the time,
 since we are usually using atomic operations to avoid locks in the first place.}
 you can check with:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 std::atomic<Foo> bar;
 ASSERT(bar.is_lock_free());
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 In most cases,\punckern\footnote{%
 The language standards permit atomic types to be \emph{sometimes} lock-free.
 This might be necessary for architectures that do not guarantee atomicity for unaligned reads and writes.}
 this information is known at compile time.
-Consequently, \cplusplus{17} added \texttt{is\_always\_lock\_free}:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+Consequently, \cplusplus{17} added \cpp|is_always_lock_free|:
+\begin{cppcode}
 static_assert(std::atomic<Foo>::is_always_lock_free);
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 \section{Read-modify-write}
 \label{rmw}
@@ -405,7 +379,7 @@ Loads and stores are all well and good,
 but sometimes we need to read a value, modify it,
 and write it back as a single atomic step.
 There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations.
-In \cplusplus{}, they are represented as member functions of \texttt{std::atomic<T>}.
+In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
 
 \subsection{Exchange}
@@ -431,12 +405,11 @@ the race disappears.
 \subsection{Test and set}
 
 \introduce{Test-and-set} works on a Boolean value:
-we read it, set it to \mintinline{cpp}{true}, and provide the value it held beforehand.
+we read it, set it to \cpp|true|, and provide the value it held beforehand.
 \clang{} and \cplusplus{} offer a type dedicated to this purpose, called \monobox{atomic\_flag}.
 We could use it to build a simple spinlock:
 \label{spinlock}
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 atomic_flag af = ATOMIC_FLAG_INIT;
 
 void lock()
@@ -445,12 +418,11 @@ void lock()
 }
 
 void unlock() { atomic_flag_clear(&af); }
-\end{minted}
-\end{colfigure}
-If we call \mintinline{c}{lock()} and the previous value is \mintinline{c}{false},
+\end{cppcode}
+If we call \cc|lock()| and the previous value is \cc|false|,
 we are the first to acquire the lock,
 and can proceed with exclusive access to whatever the lock protects.
-If the previous value is \mintinline{c}{true},
+If the previous value is \cc|true|,
 someone else has acquired the lock and we must wait until they release it by clearing the flag.
 
 \subsection{Fetch and…}
@@ -475,8 +447,7 @@ sometimes called \introduce{compare-and-exchange}.
 It allows us to conditionally exchange a value \emph{if} its previous value matches some expected one.
 In \clang{} and \cplusplus{}, \textsc{CAS} resembles the following,
 if it were executed atomically:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 template <typename T>
 bool atomic<T>::compare_exchange_strong(
     T& expected, T desired)
@@ -488,19 +459,17 @@ bool atomic<T>::compare_exchange_strong(
     expected = *this;
     return false;
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 \begin{samepage}
-\noindent The \texttt{\_strong} suffix may leave you wondering if there is a corresponding ``weak'' \textsc{CAS}.
+\noindent The \cpp|_strong| suffix may leave you wondering if there is a corresponding ``weak'' \textsc{CAS}.
 Indeed, there is. However, we will delve into that topic later in \secref{spurious-llsc-failures}.
 \end{samepage}
 
 Let's say we have some long-running task that we might want to cancel.
 We'll give it three states: \textit{idle}, \textit{running},
 and \textit{cancelled}, and write a loop that exits when it is cancelled.
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 enum class TaskState : int8_t {
     Idle, Running, Cancelled
 };
@@ -514,19 +483,16 @@ void taskLoop()
       // Do good work.
     }
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 If we want to cancel the task if it is running, but do nothing if it is idle,
 we could \textsc{CAS}:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 bool cancel()
 {
     auto expected = TaskState::Running;
     return ts.compare_exchange_strong(expected, TaskState::Cancelled);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 \section{Atomic operations as building blocks}
 
@@ -593,21 +559,21 @@ It is worth noting that the concepts we discuss here are not specific to \clang{
 Other systems programming languages like D and Rust have converged on similar models.}
 Let's examine \textsc{Arm}, since it is both popular and straightforward.
 Consider the simplest atomic operations: loads and stores.
-Given some \mintinline{cpp}{atomic_int foo},
+Given some \cpp|atomic_int foo|,
+\newline
 % Shield your eyes.
 % Essentially,
 % 1. On the left, place getFoo() and setFoo() functions.
 % 2. On the right, place the assembly they are compiled to.
 % 3. In the middle, place an arrow for each (futzing with height a bit)
 %    with the text "becomes" over it.
-\begin{colfigure}
 \begin{minipage}{0.35\linewidth}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 int getFoo()
 {
     return foo;
 }
-\end{minted}
+\end{cppcode}
 \end{minipage}
 \raisebox{-1ex}{
 \begin{tikzpicture}
@@ -624,16 +590,14 @@ getFoo:
   bx lr
 \end{lstlisting}
 \end{minipage}
-\end{colfigure}
 %Similarly,
-\begin{colfigure}
 \begin{minipage}{0.35\linewidth}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 void setFoo(int i)
 {
     foo = i;
 }
-\end{minted}
+\end{cppcode}
 \end{minipage}
 \raisebox{-1ex}{
 \begin{tikzpicture}
@@ -650,7 +614,6 @@ setFoo:
   bx lr
 \end{lstlisting}
 \end{minipage}
-\end{colfigure}
 We load the address of our atomic variable into a scratch register (\texttt{r3}),
 place our load or store operation between memory barriers (\keyword{dmb}), and then proceed.
 These barriers ensure sequential consistency:
@@ -672,10 +635,9 @@ Store-conditional executes a write operation only if no other writes have occurr
 This mechanism is illustrated through an atomic fetch and add example.
 
 On \textsc{Arm},
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 void incFoo() { ++foo; }
-\end{minted}
+\end{cppcode}
 compiles to:
 \begin{lstlisting}[language={[ARM]Assembler}]
 incFoo:
@@ -690,7 +652,6 @@ loop:
   dmb
   bx lr
 \end{lstlisting}
-\end{colfigure}
 We \textsc{LL} the current value, add one, and immediately try to store it back with a \textsc{SC}.
 If that fails, another thread may have written to \texttt{foo} since our \textsc{LL}, so we try again.
 In this way, at least one thread is always making forward progress in atomically modifying \texttt{foo},
@@ -709,8 +670,7 @@ not just the specific address that was load-linked.
 This limitation poses a particular challenge for operations like compare and swap,
 highlighting the essential purpose of \monobox{compare\_exchange\_weak}.
 Consider, for example, the task of atomically multiplying a value without an architecture-specific atomic read-multiply-write instruction.
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 void atomicMultiply(int by)
 {
     int expected = foo;
@@ -720,8 +680,7 @@ void atomicMultiply(int by)
         // (On failure, expected is updated with foo's most recent value.)
     }
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 Many lockless algorithms use \textsc{CAS} loops like this to atomically update a variable when calculating its new value is not atomic.
 They:
 \begin{enumerate}
@@ -752,12 +711,11 @@ they inhibit optimizations that your compiler and hardware would otherwise make.
 
 What if we could avoid some of this slowdown?
 Consider a simple case like the spinlock from \secref{spinlock}.
-Between the \texttt{lock()} and \texttt{unlock()} calls,
+Between the \cc|lock()| and \cc|unlock()| calls,
 we have a \introduce{critical section} where we can safely modify shared state protected by the lock.
 Outside this critical section,
 we only read and write to things that are not shared with other threads.
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 deepThought.calculate(); // non-shared
 
 lock(); // Lock; critical section begins
@@ -766,23 +724,20 @@ sharedState.answer = 42;
 unlock(); // Unlock; critical section ends
 
 demolishEarth(vogons); // non-shared
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 It is vital that reads and writes to shared memory do not move outside the critical section.
 But the opposite is not true!
 The compiler and hardware could move as much as they want \emph{into} the critical section without causing any trouble.
 We have no problem with the following if it is somehow faster:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 lock(); // Lock; critical section begins
 deepThought.calculate(); // non-shared
 sharedState.subject = "Life, the universe and everything";
 sharedState.answer = 42;
 demolishEarth(vogons); // non-shared
 unlock(); // Unlock; critical section ends
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 So, how do we tell the compiler as much?
 
 \section{Memory orderings}
@@ -803,10 +758,9 @@ A comprehensive list, as well as the corresponding enumerations used by the \cla
 To pick an ordering,
 you provide it as an optional argument that we have slyly failed to mention so far:\footnote{%
 In \clang{}, separate functions are defined for cases where specifying an ordering is necessary.
-\texttt{exchange()} becomes \texttt{exchange\_explicit()}, a \textsc{CAS}
-becomes \texttt{compare\_exchange\_strong\_explicit()}, and so on.}
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\cc|exchange()| becomes \cc|exchange_explicit()|, a \textsc{CAS}
+becomes \cc|compare_exchange_strong_explicit()|, and so on.}
+\begin{cppcode}
 void lock()
 {
     while (af.test_and_set(memory_order_acquire)) {
@@ -818,24 +772,19 @@ void unlock()
 {
     af.clear(memory_order_release);
 }
-\end{minted}
-\end{colfigure}
-Non-sequentially consistent loads and stores also use member functions of \mintinline{cpp}{std::atomic<>}:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\end{cppcode}
+Non-sequentially consistent loads and stores also use member functions of \cpp|std::atomic<>|:
+\begin{cppcode}
 int i = foo.load(memory_order_acquire);
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 Compare-and-swap operations are a bit odd in that they have \emph{two} orderings: one for when the \textsc{CAS} succeeds, and one for when it fails:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 while (!foo.compare_exchange_weak(
     expected, expected * by,
     memory_order_seq_cst, // On success
     memory_order_relaxed)) // On failure
     { /* empty loop */ }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 With the syntax out of the way,
 let's look at what these orderings are and how we can use them.
@@ -850,8 +799,7 @@ A release works the opposite manner, allowing actions to move in an $after \to b
 On \textsc{Arm} and other weakly-ordered architectures, this enables us to eliminate one of the memory barriers in each operation,
 such that
 
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+ \begin{cppcode}
 int acquireFoo()
 {
     return foo.load(memory_order_acquire);
@@ -861,10 +809,8 @@ void releaseFoo(int i)
 {
     foo.store(i, memory_order_release);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 become:
-\begin{colfigure}
 \begin{minipage}{0.45\linewidth}
 \begin{lstlisting}[language={[ARM]Assembler}]
 acquireFoo:
@@ -883,7 +829,6 @@ releaseFoo:
   bx lr
 \end{lstlisting}
 \end{minipage}
-\end{colfigure}
 
 Together, these provide $writer \to reader$ synchronization:
 if thread \textit{W} stores a value with release semantics,
@@ -891,8 +836,7 @@ and thread \textit{R} loads that value with acquire semantics,
 then all writes made by \textit{W} before its store-release are observable to \textit{R} after its load-acquire.
 If this sounds familiar, it is exactly what we were trying to achieve in
 \secref{background} and \secref{seqcst}:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 int v;
 std::atomic_bool v_ready(false);
 
@@ -909,8 +853,7 @@ void threadB()
     }
     assert(v == 42); // Must be true
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 \subsection{Relaxed}
 Relaxed atomic operations are useful for variables shared between threads where \emph{no specific order} of operations is needed.
@@ -918,13 +861,12 @@ Although it may seem like a niche requirement, such scenarios are quite common.
 
 Refer back to our discussions on \secref{atomicity} and \secref{rmw} operations,
 where a worker thread increments a counter that a \textsc{UI} thread then reads.
-In this case, the counter can be incremented using \texttt{fetch\_add(1, memory\_order\_relaxed)} because the only requirement is atomicity;
+In this case, the counter can be incremented using \cc|fetch_add(1, memory_order_relaxed)| because the only requirement is atomicity;
 the counter itself does not coordinate synchronization.
 
 Relaxed operations are also beneficial for managing flags shared between threads.
 For example, a thread might continuously run until it receives a signal to exit:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 atomic_bool stop(false);
 
 void worker()
@@ -941,15 +883,13 @@ int main()
     stop = true; // seq_cst
     joinWorker();
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 We do not care if the contents of the loop are rearranged around the load.
 Nothing bad will happen so long as \texttt{stop} is only used to tell the worker to exit, and not to ``announce'' any new data.
 
 Finally, relaxed loads are commonly used with \textsc{CAS} loops.
 Return to our lock-free multiply:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 void atomicMultiply(int by)
 {
     int expected = foo.load(memory_order_relaxed);
@@ -961,36 +901,31 @@ void atomicMultiply(int by)
         /* empty loop */
     }
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 All of the loads can be relaxed as we do not need to enforce any order until we have successfully modified our value.
 The initial load of \texttt{expected} is not strictly necessary but can help avoid an extra loop iteration if \texttt{foo} remains unmodified by other threads before the \textsc{CAS} operation.
 
 \subsection{Acquire-Release}
 
-\texttt{memory\_order\_acq\_rel} is used with atomic \textsc{RMW} operations that need to both load-acquire \emph{and} store-release a value.
+\cc|memory_order_acq_rel| is used with atomic \textsc{RMW} operations that need to both load-acquire \emph{and} store-release a value.
 A typical example involves thread-safe reference counting,
-like in \cplusplus{}'s \mintinline{cpp}{shared_ptr}:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+like in \cplusplus{}'s \cpp|shared_ptr|:
+\begin{cppcode}
 atomic_int refCount;
 
 void inc()
 {
     refCount.fetch_add(1, memory_order_relaxed);
 }
-\end{minted}
-\end{colfigure}
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\end{cppcode}
+\begin{cppcode}
 void dec()
 {
     if (refCount.fetch_sub(1, memory_order_acq_rel) == 1) {
         // No more references, delete the data.
     }
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 Order does not matter when incrementing the reference count since no action is taken as a result.
 However, when we decrement, we must ensure that:
@@ -1007,7 +942,7 @@ Curious readers might be wondering about the difference between acquire-release 
 To quote Hans Boehm, chair of the ISO~\cplusplus{} Concurrency Study Group,
 \begin{quote}
 \small
-The difference between \texttt{acq\_rel} and \texttt{seq\_cst} is generally whether the operation is required to participate in the single global order of sequentially consistent operations.
+The difference between \cc|acq_rel| and \cc|seq_cst| is generally whether the operation is required to participate in the single global order of sequentially consistent operations.
 \end{quote}
 In other words, acquire-release provides order relative to the variable being load-acquired and store-released,
 whereas sequentially consistent operation provides some \emph{global} order across the entire program.
@@ -1022,50 +957,45 @@ experts-only construct we have in the language.
 
 \subsection{Consume}
 
-Last but not least, we introduce \texttt{memory\_order\_consume}.
+Last but not least, we introduce \cc|memory_order_consume|.
 Imagine a situation where data changes rarely but is frequently read by many threads.
 For example, in a kernel tracking peripherals connected to a machine,
 updates to this information occur very infrequently—only when a device is plugged in or removed.
 In such cases, it is logical to prioritize read optimization as much as possible.
 Based on our current understanding, the most effective strategy is:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 std::atomic<PeripheralData*> peripherals;
 
 // Writers:
 PeripheralData* p = kAllocate(sizeof(*p));
 populateWithNewDeviceData(p);
 peripherals.store(p, memory_order_release);
-\end{minted}
-\begin{minted}[fontsize=\codesize]{cpp}
+\end{cppcode}
+\begin{cppcode}
 // Readers:
 PeripheralData *p = peripherals.load(memory_order_acquire);
 if (p != nullptr) {
     doSomethingWith(p->keyboards);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 
 To further enhance optimization for readers,
 bypassing a memory barrier on weakly-ordered systems for loads would be ideal.
 Fortunately, this is often achievable.
-The data being accessed (\texttt{p->keyboards}) relies on the value of \texttt{p},
+The data being accessed (\cpp|p->keyboards|) relies on the value of \cpp|p|,
 leading most platforms, including those with weak ordering,
-to maintain the sequence of the initial load (\mintinline{cpp}{p = peripherals}) and its subsequent use (\mintinline{cpp}{p->keyboards}).
+to maintain the sequence of the initial load (\cpp|p = peripherals|) and its subsequent use (\cpp|p->keyboards|).
 However, it is notable that on some particularly weakly-ordered architectures, like DEC Alpha,
 this reordering can occur, much to the frustration of developers.
 Ensuring the compiler avoids any similar reordering is crucial, and \monobox{memory\_order\_consume} is designed for this purpose.
 Change readers to:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 PeripheralData *p = peripherals.load(memory_order_consume);
 if (p != nullptr) {
     doSomethingWith(p->keyboards);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 and an \textsc{Arm} compiler could emit:
-\begin{colfigure}
 \begin{lstlisting}[language={[ARM]Assembler}]
   ldr r3, &peripherals
   ldr r3, [r3]
@@ -1076,7 +1006,6 @@ and an \textsc{Arm} compiler could emit:
 was_null:
   ...
 \end{lstlisting}
-\end{colfigure}
 
 \setcounter{footnote}{0}
 Sadly, the emphasis here is on \emph{could}.
@@ -1131,16 +1060,14 @@ This dynamic can significantly affect performance.
 Take a readers-writer lock, for example,
 which prevents data races by allowing either a single writer or multiple readers access to shared data but not simultaneously.
 At its most basic, this concept can be summarized as follows:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 struct RWLock {
     int readers;
     bool hasWriter; // Zero or one writers
 };
-\end{minted}
-\end{colfigure}
-Writers must wait until the \texttt{readers} count drops to zero,
-while readers can acquire the lock through an atomic \textsc{RMW} operation if \texttt{hasWriter} is \mintinline{cpp}{false}.
+\end{cppcode}
+Writers must wait until the \cc|readers| count drops to zero,
+while readers can acquire the lock through an atomic \textsc{RMW} operation if \cc|hasWriter| is \cpp|false|.
 
 At first glance, this approach might seem significantly more efficient than exclusive locking mechanisms (e.g., mutexes or spinlocks) in scenarios where shared data is read more frequently than written.
 However, this perspective overlooks the impact of cache coherence.
@@ -1177,7 +1104,6 @@ where hardware translates reads and writes to certain addresses into instruction
 \begin{enumerate}
   \item The compiler will not elide loads and stores that seem ``unnecessary''\quotekern.
         For example, if I have some function:
-        \begin{colfigure}
         \begin{minted}[fontsize=\codesize,autogobble]{cpp}
         void write(int *t)
         {
@@ -1185,7 +1111,6 @@ where hardware translates reads and writes to certain addresses into instruction
             *t = 42;
         }
         \end{minted}
-        \end{colfigure}
         the compiler would normally optimize it to:
         \begin{minted}[fontsize=\codesize,autogobble]{cpp}
         void write(int *t)
@@ -1193,7 +1118,7 @@ where hardware translates reads and writes to certain addresses into instruction
             *t = 42;
         }
         \end{minted}
-        \mintinline{cpp}{*t = 2} is often considered a \introduce{dead store},
+        \cpp|*t = 2| is often considered a \introduce{dead store},
         seemingly performing no function.
         However, when \texttt{t} is directed at an \textsc{MMIO} register,
         this assumption becomes unsafe.
@@ -1218,29 +1143,25 @@ The optimizer can do fairly mundane things, such as replacing
 \monobox{foo.fetch\_and(0)} with \monobox{foo = 0},
 but it can also produce surprising results.
 Consider:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 while (tmp = foo.load(memory_order_relaxed)) {
     doSomething(tmp);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 Since relaxed loads provide no ordering guarantees,
 the compiler is free to unroll the loop as much as it pleases,
 perhaps into:
-\begin{colfigure}
-\begin{minted}[fontsize=\codesize]{cpp}
+\begin{cppcode}
 while (tmp = foo.load(memory_order_relaxed)) {
     doSomething(tmp);
     doSomething(tmp);
     doSomething(tmp);
     doSomething(tmp);
 }
-\end{minted}
-\end{colfigure}
+\end{cppcode}
 If ``fusing'' reads or writes like this is unacceptable,
 we must prevent it
-with \mintinline{cpp}{volatile} casts or incantations like \mintinline{cpp}{asm volatile("" ::: "memory")}.\punckern\footnote{See
+with \cpp|volatile| casts or incantations like \cpp|asm volatile("" ::: "memory")|.\punckern\footnote{See
 \url{https://stackoverflow.com/a/14983432}.}
 The Linux kernel provides \monobox{READ\_ONCE()} and \monobox{WRITE\_ONCE()}
 macros for this exact purpose.\punckern\footnote{See
@@ -1290,7 +1211,7 @@ by Fedor Pikus,
 a hour-long talk on this topic.
 
 \href{https://channel9.msdn.com/Shows/Going+Deep/Cpp-and-Beyond-2012-Herb-Sutter-atomic-Weapons-1-of-2}{%
-\textit{\texttt{atomic<> Weapons}: The \cplusplus{11} Memory Model and Modern Hardware}}
+\textit{\cpp|atomic<> Weapons|: The \cplusplus{11} Memory Model and Modern Hardware}}
 by Herb Sutter,
 a three-hour talk that provides a deeper dive.
 Also the source of figures \ref{ideal-machine} and \ref{dunnington}.

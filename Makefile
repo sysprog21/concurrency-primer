@@ -1,7 +1,7 @@
 lstlangarm.sty:
 	wget https://raw.githubusercontent.com/sysprog21/arm-assembler-latex-listings/master/lstlangarm.sty
 
-concurrency-primer.pdf: lstlangarm.sty concurrency-primer.tex
+concurrency-primer.pdf: lstlangarm.sty lib/codeblock.tex concurrency-primer.tex
 	latexmk -lualatex -latexoption=-shell-escape concurrency-primer.tex
 
 # Clear the .DEFAULT_GOAL special variable, so that the following turns
