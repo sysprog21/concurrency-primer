@@ -10,8 +10,7 @@
 
 typedef struct job {
     void *args;
-    struct job *next;
-    struct job *prev;
+    struct job *next, *prev;
 } job_t;
 
 enum state { idle, running, cancelled };
