@@ -5,6 +5,7 @@
 #include <threads.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #define CACHE_LINE_SIZE 64
 
@@ -63,12 +64,11 @@ int worker(void *args)
     };
 }
 
-bool thread_pool_init(thread_pool_t *thrd_pool, int size)
+bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
 {
     atomic_flag_test_and_set(&thrd_pool->initialezed); // It's useless anyway
 
-    // TODO: size should be a positive integer
-    // malloc with zero size is non-portable
+    assert(size > 0);
     thrd_pool->pool = malloc(sizeof(thrd_t) * size);
     if (!thrd_pool->pool) {
         printf("Failed to allocate thread identifiers.\n");
