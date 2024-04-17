@@ -36,9 +36,9 @@ int worker(void *args)
     thread_pool_t *thrd_pool = (thread_pool_t *)args;
 
     while (1) {
-        if (atomic_load(&thrd_pool->state) == cancelled) {
+        if (atomic_load(&thrd_pool->state) == cancelled)
             return EXIT_SUCCESS;
-        } else if (atomic_load(&thrd_pool->state) == running) {
+        if (atomic_load(&thrd_pool->state) == running) {
             // claim the job
             uintptr_t job = atomic_load(&thrd_pool->tail);
             while (!atomic_compare_exchange_strong(
