@@ -8,6 +8,8 @@
 #include <assert.h>
 
 #define CACHE_LINE_SIZE 64
+#define CAST_JOB(job, type) ({ *(type *)(*(job_t **)(job))->args; })
+#define PREV_JOB(job) ({ (uintptr_t)(&(*(job_t **)(job))->prev); })
 
 typedef struct job {
     void *args;
@@ -41,8 +43,8 @@ int worker(void *args)
         if (atomic_load(&thrd_pool->state) == running) {
             // claim the job
             uintptr_t job = atomic_load(&thrd_pool->tail);
-            while (!atomic_compare_exchange_strong(
-                &thrd_pool->tail, &job, (uintptr_t)(&(*(job_t **)job)->prev))) {
+            while (!atomic_compare_exchange_strong(&thrd_pool->tail, &job,
+                                                   PREV_JOB(job))) {
             }
             if ((*(job_t **)job)->args == NULL) {
                 // store happens-before while loop
@@ -54,7 +56,7 @@ int worker(void *args)
                     // as long as producer is protected
                 }
             } else {
-                printf("Hello from job %d\n", *(int *)(*(job_t **)job)->args);
+                printf("Hello from job %d\n", CAST_JOB(job, int));
                 free((*(job_t **)job)->args);
                 free(*(job_t **)job);
             }
