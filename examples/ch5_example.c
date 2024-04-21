@@ -50,13 +50,13 @@ int worker(void *args)
                 atomic_store(&thrd_pool->state, idle);
             } else {
                 printf("Hello from job %d\n", *(int *)job->args);
-                // this could free too early
+                // could cause dangling pointer in other threads
                 free(job->args);
                 free(job);
             }
         } else {
             /* To auto run when jobs added, set status to running if job queue is not empty.
-             * As long as the producer is protected*/
+             * As long as the producer is protected */
             thrd_yield();
             continue;
         }
@@ -65,7 +65,10 @@ int worker(void *args)
 
 bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
 {
-    atomic_flag_test_and_set(&thrd_pool->initialezed); // It's useless anyway
+    if (atomic_flag_test_and_set(&thrd_pool->initialezed)) {
+        printf("This thread pool has already been initialized.\n");
+        return false;
+    }
 
     assert(size > 0);
     thrd_pool->pool = malloc(sizeof(thrd_t) * size);
@@ -100,7 +103,8 @@ bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
 
 void thread_pool_destroy(thread_pool_t *thrd_pool)
 {
-    atomic_store(&thrd_pool->state, cancelled);
+    if(atomic_exchange(&thrd_pool->state, cancelled))
+        printf("Thread pool cancelled with jobs still running.\n");
     for (int i = 0; i < thrd_pool->size; i++) {
         thrd_join(thrd_pool->pool[i], NULL);
     }
@@ -111,6 +115,8 @@ void thread_pool_destroy(thread_pool_t *thrd_pool)
     }
     free(thrd_pool->head);
     free(thrd_pool->pool);
+    atomic_fetch_and(&thrd_pool->state, 0);
+    atomic_flag_clear(&thrd_pool->initialezed);
 }
 
 __attribute__((nonnull(2))) bool add_job(thread_pool_t *thrd_pool, void *args)
@@ -137,7 +143,7 @@ __attribute__((nonnull(2))) bool add_job(thread_pool_t *thrd_pool, void *args)
 
 int main()
 {
-    thread_pool_t thrd_pool;
+    thread_pool_t thrd_pool = { .initialezed = ATOMIC_FLAG_INIT };
     int thread_count = 8;
     int job_count = 16;
     if (!thread_pool_init(&thrd_pool, thread_count)) {
