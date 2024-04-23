@@ -7,6 +7,8 @@
 #include <assert.h>
 
 #define CACHE_LINE_SIZE 64
+#define N_JOBS 16
+#define N_THREADS 8
 
 typedef struct job {
     void *args;
@@ -50,9 +52,8 @@ int worker(void *args)
                 atomic_store(&thrd_pool->state, idle);
             } else {
                 printf("Hello from job %d\n", *(int *)job->args);
-                // could cause dangling pointer in other threads
                 free(job->args);
-                free(job);
+                free(job); // could cause dangling pointer in other threads
             }
         } else {
             /* To auto run when jobs added, set status to running if job queue is not empty.
@@ -103,7 +104,7 @@ bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
 
 void thread_pool_destroy(thread_pool_t *thrd_pool)
 {
-    if(atomic_exchange(&thrd_pool->state, cancelled))
+    if (atomic_exchange(&thrd_pool->state, cancelled))
         printf("Thread pool cancelled with jobs still running.\n");
     for (int i = 0; i < thrd_pool->size; i++) {
         thrd_join(thrd_pool->pool[i], NULL);
@@ -144,13 +145,11 @@ __attribute__((nonnull(2))) bool add_job(thread_pool_t *thrd_pool, void *args)
 int main()
 {
     thread_pool_t thrd_pool = { .initialezed = ATOMIC_FLAG_INIT };
-    int thread_count = 8;
-    int job_count = 16;
-    if (!thread_pool_init(&thrd_pool, thread_count)) {
+    if (!thread_pool_init(&thrd_pool, N_THREADS)) {
         printf("failed to init.\n");
         return 0;
     }
-    for (int i = 0; i < job_count; i++) {
+    for (int i = 0; i < N_JOBS; i++) {
         int *id = malloc(sizeof(int));
         *id = i;
         add_job(&thrd_pool, id);
@@ -158,7 +157,7 @@ int main()
     // Due to simplified job queue (not protecting producer), starting the pool manually
     atomic_store(&thrd_pool.state, running);
     sleep(1);
-    for (int i = 0; i < job_count; i++) {
+    for (int i = 0; i < N_JOBS; i++) {
         int *id = malloc(sizeof(int));
         *id = i;
         add_job(&thrd_pool, id);
