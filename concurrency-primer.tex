@@ -382,8 +382,7 @@ static_assert(std::atomic<Foo>::is_always_lock_free);
 
 \section{Read-modify-write}
 \label{rmw}
-% To add:
-% 值得注意的是 atomic type 不僅是 RWM 的保證，也是前後執行順序的保證，那可以把他當作 memery barrier 嗎？
+
 So far we have introduced the importance of order and atomicity.
 The latter ensures that no other operations on the target object success until the executing operation has finished.
 This also establishes ordering between operations, as no operations can occur concurrently.
