@@ -321,6 +321,9 @@ Formally, atomic types establish a \textit{single total modification order} wher
 This model, defined by Leslie Lamport in 1979,
 is called \introduce{sequential consistency}.
 
+Notice that using atomic variables as an lvalue expression, such as \monobox{v\_ready = true} and \monobox{while(!v\_ready)}, is a convenient alternative to explicitly using \monobox{atomic\_load} or \monobox{atomic\_store}. 
+Lvalue-to-rvalue conversion (which models a memory read from an atomic location to a CPU register) strips atomicity along with other qualifiers. 
+
 \section{Atomicity}
 \label{atomicity}
 But order is only one of the vital ingredients for inter-thread communication.
@@ -379,56 +382,79 @@ static_assert(std::atomic<Foo>::is_always_lock_free);
 
 \section{Read-modify-write}
 \label{rmw}
+% To add:
+% 值得注意的是 atomic type 不僅是 RWM 的保證，也是前後執行順序的保證，那可以把他當作 memery barrier 嗎？
+So far we have introduced the importance of order and atomicity.
+The latter ensures that no other operations on the target object success until the executing operation has finished.
+This also establishes ordering between operations, as no operations can occur concurrently.
+For two operations, A and B, either A happens before B or B happens before A.
+As in \secref{seqcst}, a local order of other operations associated to the an atomic object is given as well, with \introduce{sequential consistency} as default consistency level.
+Since happens before relation is transitive, just like $>$ and $<$, a global order is established by combining local order and inter-thread order provided by atomic objects. 
 
-Loads and stores are all well and good,
-but sometimes we need to read a value, modify it,
+Atomic loads and stores are all well and good when we don't need to consider the previous state of atomic variables.
+But sometimes we need to read a value, modify it,
 and write it back as a single atomic step.
+That is, the modification is based on the previous state that is visible for reading, and the result is then written back.
+A complete \introduce{read-modify-write} operation is performed atomically to ensure visibility to subsequent operations.
+
 There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations.
 In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
+
+Following example code is a simplify implementation of thread pool to demonstrate the use of \clang{}11 atomic library.
+
+\inputminted{c}{./examples/rmw_example.c}
+
+Compile the code with \monobox{gcc rmw\_example.c -o rmw\_example -Wall -Wextra -std=c11 -pthread} and execute the program.
+A thread pool has three states: idle, cancelled and running. 
+It is initialized with \monobox{N\_THREADS} (default 8) of threads. 
+\monobox{N\_JOBS} (default 16) of jobs are added, and the pool is then set to running. 
+A job is simply echoing its job ID.
+\monobox{sleep(1)} is used to ensure that the second batch of jobs is added after the first batch is finished; otherwise, jobs may not be consumed as expected.
+Thread pool is then destroyed right after starting running.
+Possible stdout of the program is:
+\begin{ccode}
+Hello from job 5
+Hello from job 8
+Hello from job 9
+Hello from job 10
+Hello from job 11
+Hello from job 12
+Hello from job 13
+Hello from job 14
+Hello from job 15
+Hello from job 3
+Hello from job 1
+Hello from job 6
+Hello from job 4
+Hello from job 7
+Hello from job 2
+Hello from job 0
+Hello from job 0
+Hello from job 1
+Hello from job 3
+Hello from job 2
+Thread pool cancelled with jobs still running.
+\end{ccode}
 
 \subsection{Exchange}
 \label{exchange}
 
 The simplest atomic \textsc{RMW} operation is an \introduce{exchange}:
 the current value is read and replaced with a new one.
-To see where this might be useful,
-let's tweak our example from \secref{atomicity}:
-instead of displaying the total number of processed files,
-the \textsc{UI} might want to show how many were processed per second.
-We could implement this by having the \textsc{UI} thread read the counter then zero it each second.
-But we could get the following race condition if reading and zeroing are separate steps:
-\begin{enumerate}
-  \item The \textsc{UI} thread reads the counter.
-  \item Before the \textsc{UI} thread has the chance to zero it,
-        the worker thread increments it again.
-  \item The \textsc{UI} thread now zeroes the counter, and the previous increment is lost.
-\end{enumerate}
-If the \textsc{UI} thread atomically exchanges the current value with zero,
-the race disappears.
+In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads current state and replaces it with "cancelled". A warning message is printed if the pool is destroyed when still running. 
+If the exchange is not performed atomically, we may initially get the state as "running". Subsequently, a thread could set the state to "cancelled" after finishing the last one, resulting in a false warning.
 
 \subsection{Test and set}
 
 \introduce{Test-and-set} works on a Boolean value:
 we read it, set it to \cpp|true|, and provide the value it held beforehand.
 \clang{} and \cplusplus{} offer a type dedicated to this purpose, called \monobox{atomic\_flag}.
-We could use it to build a simple spinlock:
-\label{spinlock}
-\begin{ccode}
-atomic_flag af = ATOMIC_FLAG_INIT;
-
-void lock()
-{
-    while (atomic_flag_test_and_set(&af)) { /* wait */ }
-}
-
-void unlock() { atomic_flag_clear(&af); }
-\end{ccode}
-If we call \cc|lock()| and the previous value is \cc|false|,
-we are the first to acquire the lock,
-and can proceed with exclusive access to whatever the lock protects.
-If the previous value is \cc|true|,
-someone else has acquired the lock and we must wait until they release it by clearing the flag.
+The value of the flag is indeterminate until initialized with \monobox{ATOMIC\_FLAG\_INIT} macro.
+A thread pool has a \monobox{atomic\_flag} indicating it's initialized or not. The flag ensures initialization is thread-safe, preventing a pool from being reinitialized.
+Function \monobox{thread\_pool\_init} sets the flag with \monobox{atomic\_flag\_test\_and\_set(\&thrd\_pool->initialezed)} first.
+If the return value is \monobox{true}, initialization is not performed again.
+Function \monobox{thread\_pool\_destroy} clears the flag with \monobox{atomic\_flag\_clear(\&thrd\_pool->initialezed)} after destroying everything.
 
 \subsection{Fetch and…}
 
@@ -436,13 +462,9 @@ We can also read a value,
 perform a simple operation on it (such as addition, subtraction,
 or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous value,
 all as part of a single atomic operation.
-You might recall from the exchange example that additions by the worker thread must be atomic to prevent races, where:
-\begin{enumerate}
-  \item The worker thread loads the current counter value and adds one.
-  \item Before that thread can store the value back,
-        the \textsc{UI} thread zeroes the counter.
-  \item The worker now performs its store, as if the counter was never cleared.
-\end{enumerate}
+In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to idle. 
+Yet, in this case, it is not necessary, as the pool needs to be reinitialized for further use regardless.
+Its return value could be further utilized, for instance, to report the previous state and perform additional actions.
 
 \subsection{Compare and swap}
 \label{cas}
@@ -452,52 +474,54 @@ sometimes called \introduce{compare-and-exchange}.
 It allows us to conditionally exchange a value \emph{if} its previous value matches some expected one.
 In \clang{} and \cplusplus{}, \textsc{CAS} resembles the following,
 if it were executed atomically:
-\begin{cppcode}
-template <typename T>
-bool atomic<T>::compare_exchange_strong(
-    T& expected, T desired)
+\begin{ccode}
+/* A is an atomic type. C is the non-atomic type corresponding to A */
+bool atomic_compare_exchange_strong(A* obj, C* expected, C desired)
 {
-    if (*this == expected) {
-        *this = desired;
+    if (memcmp(obj, expected, sizeof(*object)) == 0) {
+        memcpy(obj, &desired, sizeof(*object));
         return true;
+    } else {
+        memcpy(expected, obj, sizeof(*object));
+        return false;
     }
-    expected = *this;
-    return false;
 }
-\end{cppcode}
+\end{ccode}
 
 \begin{samepage}
 \noindent The \cpp|_strong| suffix may leave you wondering if there is a corresponding ``weak'' \textsc{CAS}.
 Indeed, there is. However, we will delve into that topic later in \secref{spurious-llsc-failures}.
 \end{samepage}
 
-Let's say we have some long-running task that we might want to cancel.
-We'll give it three states: \textit{idle}, \textit{running},
-and \textit{cancelled}, and write a loop that exits when it is cancelled.
-\begin{cppcode}
-enum class TaskState : int8_t {
-    Idle, Running, Cancelled
-};
-
-std::atomic<TaskState> ts;
-
-void taskLoop()
-{
-    ts = TaskState::Running;
-    while (ts == TaskState::Running) {
-      // Do good work.
-    }
+Once threads are created in the thread pool as workers, they will continuously search for jobs to do.
+Jobs are taken from the tail of job queue.
+To claim a job without it being taken by another worker halfway through, we need to atomically change the pointer to the last job. Otherwise the last job is under races.
+The while loop in function \monobox{worker},
+\begin{ccode}
+while (!atomic_compare_exchange_strong(&thrd_pool->head->prev, &job,
+                                       job->prev)) {
 }
-\end{cppcode}
-If we want to cancel the task if it is running, but do nothing if it is idle,
-we could \textsc{CAS}:
-\begin{cppcode}
-bool cancel()
-{
-    auto expected = TaskState::Running;
-    return ts.compare_exchange_strong(expected, TaskState::Cancelled);
-}
-\end{cppcode}
+\end{ccode}
+, keeps trying to claim the job atomically until success.
+
+Built-in post increment and decrement operators and compound assignment on atomic objects, such as \monobox{++} and \monobox{+=}, are read-modify-write atomic operations with total sequentially consistent ordering as well. 
+They behave equivalently to a \monobox{do while} loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
+
+\subsection{Further improments}
+At the beginning of \secref{rmw}, we described how a global total order is established by combining local order and inter-thread order imposed by atomic objects. 
+But should every object, including non-atomic ones, participate in a single global order established by atomic objects?
+\introduce{Sequential consistency} solves the ordering problem in in \secref{seqcst}, but it may force too much ordering, as some normal operations may not require it.
+Without specifying, atomic operations in \clang{}11 atomic library use \monobox{memory\_order\_seq\_cst} as default memory order. Operations post-fix with \monobox{\_explicit} accept an additional argument to specify which memory order to use.
+How to leverage memory orders to optimize performance will be covered later in \secref{lock-example}.
+
+You may have noticed that there is padding after \monobox{\_Atomic(job\_t *) prev} in \monobox{struct idle\_job} in the example.
+It is used for preventing \introduce{false sharing} in a cache line.
+Further discussion on cache effects and false sharing is provided in \secref{false-sharing}.
+
+Jobs in the example are dynamically allocated. They are freed after worker finishes each job. 
+However, this situation may lead to dangling pointers for workers that are still holding and attempting to claim the job. 
+If jobs are intended to be dynamically allocated, then safe memory reclamation should be implemented for such shared objects.
+RCU, hazard pointer and reference counting are major ways of solving this problem.
 
 \section{Atomic operations as building blocks}
 
@@ -530,7 +554,7 @@ In the second, subsequent sensor inputs could be missed if the \textsc{isr} does
 Lockless algorithms are not inherently superior or quicker than blocking ones;
 they serve different purposes with their own design philosophies.
 Additionally, the mere use of atomic operations does not render algorithms lock-free.
-For example, our basic spinlock discussed in \secref{spinlock} is still considered a blocking algorithm even though it eschews \textsc{OS}-specific syscalls for making the blocked thread sleep.
+For example, basic spinlock is still considered a blocking algorithm even though it eschews \textsc{OS}-specific syscalls for making the blocked thread sleep.
 Putting a blocked thread to sleep is often an optimization,
 allowing the operating system's scheduler to allocate \textsc{CPU} resources to active threads until the blocked one is revived.
 Some concurrency libraries even introduce hybrid locks that combine brief spinning with sleeping to balance \textsc{CPU} usage and context-switching overheads.
