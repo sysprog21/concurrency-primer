@@ -504,9 +504,38 @@ while (!atomic_compare_exchange_strong(&thrd_pool->head->prev, &job,
 , keeps trying to claim the job atomically until success.
 
 Built-in post increment and decrement operators and compound assignment on atomic objects, such as \monobox{++} and \monobox{+=}, are read-modify-write atomic operations with total sequentially consistent ordering as well. 
-They behave equivalently to a \monobox{do while} loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
+They behave equivalently to a \cc|do while| loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
 
-\subsection{Further improments}
+What if claiming a job, which updates \cc|thrd_pool->head->prev|, is not done atomically?
+Let's remove the atomicity of claiming a job and use thread sanitizer to detect races.
+Thread sanitizer is one of the sanitizers provided by \introduce{gcc} and \introduce{clang} to detect data races. 
+Data races are undefined behavior in \clang{}11 and \cplusplus{}11. 
+Thread sanitizer inserts runtime code into the target program to track memory accesses. 
+When races occur during execution, warning messages are printed.
+To enable this, add \monobox{-fsanitize=thread -g} to compiler flags.
+The following diff patch removes the atomicity of claiming a job and uses pthread instead of \clang{}11 thread, because thread sanitizer currently hasn't support \clang{}11 thread yet. 
+Save diff as \monobox{racer.diff} and patch the example code by \monobox{\$ patch rmw\_example.c race.diff}.
+
+\inputminted{diff}{./examples/racer.diff}
+
+After compiling and running the example, you will see warning messages printed and same job IDs got echoed repeatly. 
+The top two sections of a warning message indicate which two threads executed which function causing the data race.
+The bottom two sections indicate how these two threads were created.
+If the race occurred on a heap block, a third section would appear indicating how the block was allocated.
+At the end of a warning message, a summary indicates the type of race and where it occurred.
+You'll see that two lines of code, which claim a job, are highlighted as causing a data race on \cc|thrd_pool->head|.
+
+You may notice that there is another part of the code causing races. 
+While some workers were echoing ID, others were attempting to free the job, resulting in heap-use-after-free and data races.
+This occurred when two workers claimed the same job, as the claiming process was not atomic.
+But even when jobs were claimed atomically, this still can occur.
+This is a defect of the example code.
+Jobs in the example are dynamically allocated. They are freed after worker finishes each job. 
+However, this situation may lead to dangling pointers for workers that are still holding and attempting to claim the job. 
+If jobs are intended to be dynamically allocated, then safe memory reclamation should be implemented for such shared objects.
+RCU, hazard pointer and reference counting are major ways of solving this problem.
+
+\subsection{Further improvements}
 At the beginning of \secref{rmw}, we described how a global total order is established by combining local order and inter-thread order imposed by atomic objects. 
 But should every object, including non-atomic ones, participate in a single global order established by atomic objects?
 \introduce{Sequential consistency} solves the ordering problem in in \secref{seqcst}, but it may force too much ordering, as some normal operations may not require it.
@@ -516,11 +545,6 @@ How to leverage memory orders to optimize performance will be covered later in \
 You may have noticed that there is padding after \monobox{\_Atomic(job\_t *) prev} in \monobox{struct idle\_job} in the example.
 It is used for preventing \introduce{false sharing} in a cache line.
 Further discussion on cache effects and false sharing is provided in \secref{false-sharing}.
-
-Jobs in the example are dynamically allocated. They are freed after worker finishes each job. 
-However, this situation may lead to dangling pointers for workers that are still holding and attempting to claim the job. 
-If jobs are intended to be dynamically allocated, then safe memory reclamation should be implemented for such shared objects.
-RCU, hazard pointer and reference counting are major ways of solving this problem.
 
 \section{Atomic operations as building blocks}
 
@@ -738,7 +762,17 @@ After all,
 they inhibit optimizations that your compiler and hardware would otherwise make.
 
 What if we could avoid some of this slowdown?
-Consider a simple case like the spinlock from \secref{spinlock}.
+Consider a simple case like spinlock.
+\begin{ccode}
+atomic_flag af = ATOMIC_FLAG_INIT;
+
+void lock()
+{
+    while (atomic_flag_test_and_set(&af)) { /* wait */ }
+}
+
+void unlock() { atomic_flag_clear(&af); }
+\end{ccode}
 Between the \cc|lock()| and \cc|unlock()| calls,
 we have a \introduce{critical section} where we can safely modify shared state protected by the lock.
 Outside this critical section,
