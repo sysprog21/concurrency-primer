@@ -384,7 +384,7 @@ static_assert(std::atomic<Foo>::is_always_lock_free);
 \label{rmw}
 
 So far we have introduced the importance of order and atomicity.
-The latter ensures that no other operations on the target object success until the executing operation has finished.
+The latter ensures that an operation can eventually finish without being interfered by other operations.
 This also establishes ordering between operations, as no operations can occur concurrently.
 For two operations, A and B, either A happens before B or B happens before A.
 As in \secref{seqcst}, a local order of other operations associated to the an atomic object is given as well, with \introduce{sequential consistency} as default consistency level.
