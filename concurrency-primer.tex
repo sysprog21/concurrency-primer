@@ -762,44 +762,34 @@ After all,
 they inhibit optimizations that your compiler and hardware would otherwise make.
 
 What if we could avoid some of this slowdown?
-Consider a simple case like spinlock.
+consider the example provided in \secref{rmw},
+where an atomic pointer \monobox{prev} in \monobox{struct idle\_job} is assigned an address in function \monobox{thread\_pool\_init}:
 \begin{ccode}
-atomic_flag af = ATOMIC_FLAG_INIT;
-
-void lock()
-{
-    while (atomic_flag_test_and_set(&af)) { /* wait */ }
-}
-
-void unlock() { atomic_flag_clear(&af); }
+idle_job->job.args = NULL;
+idle_job->job.next = &idle_job->job;
+idle_job->job.prev = &idle_job->job;
+idle_job->prev = &idle_job->job; /* assign to atomic pointer */
+thrd_pool->func = worker;
+thrd_pool->head = idle_job;
+thrd_pool->state = idle;
+thrd_pool->size = size;
 \end{ccode}
-Between the \cc|lock()| and \cc|unlock()| calls,
-we have a \introduce{critical section} where we can safely modify shared state protected by the lock.
-Outside this critical section,
-we only read and write to things that are not shared with other threads.
-\begin{cppcode}
-deepThought.calculate(); // non-shared
-
-lock(); // Lock; critical section begins
-sharedState.subject = "Life, the universe and everything";
-sharedState.answer = 42;
-unlock(); // Unlock; critical section ends
-
-demolishEarth(vogons); // non-shared
-\end{cppcode}
-
-It is vital that reads and writes to shared memory do not move outside the critical section.
-But the opposite is not true!
-The compiler and hardware could move as much as they want \emph{into} the critical section without causing any trouble.
+An simple assignment on an atomic object is equivalent to \cc|atomic_store(A* obj , C desired)|.
+In this case, statements above line 4 is guaranteed to happen before the atomic operation,
+and the atomic operation is guaranteed to happen before statements below line 4.
+However, this series of operations are filling fields in structures. They do not have data dependecies so they are not necessarily executed in some order.
 We have no problem with the following if it is somehow faster:
-\begin{cppcode}
-lock(); // Lock; critical section begins
-deepThought.calculate(); // non-shared
-sharedState.subject = "Life, the universe and everything";
-sharedState.answer = 42;
-demolishEarth(vogons); // non-shared
-unlock(); // Unlock; critical section ends
-\end{cppcode}
+\begin{ccode}
+idle_job->prev = &idle_job->job; /* assign to atomic pointer */
+idle_job->job.args = NULL;
+idle_job->job.next = &idle_job->job;
+idle_job->job.prev = &idle_job->job;
+thrd_pool->func = worker;
+thrd_pool->head = idle_job;
+thrd_pool->state = idle;
+thrd_pool->size = size;
+\end{ccode}
+The compiler is free to reorder instructions and the befavior of \monobox{thread\_pool\_init} would remain the same.
 So, how do we tell the compiler as much?
 
 \section{Memory orderings}
@@ -919,51 +909,41 @@ void threadB()
 Relaxed atomic operations are useful for variables shared between threads where \emph{no specific order} of operations is needed.
 Although it may seem like a niche requirement, such scenarios are quite common.
 
-Refer back to our discussions on \secref{atomicity} and \secref{rmw} operations,
-where a worker thread increments a counter that a \textsc{UI} thread then reads.
-In this case, the counter can be incremented using \cc|fetch_add(1, memory_order_relaxed)| because the only requirement is atomicity;
-the counter itself does not coordinate synchronization.
-
-Relaxed operations are also beneficial for managing flags shared between threads.
-For example, a thread might continuously run until it receives a signal to exit:
+Relaxed operations are beneficial for managing flags shared between threads.
+For example, a worker thread in thread pool in \secref{rmw} might continuously run until it receives a cancelled signal:
 \begin{cppcode}
-atomic_bool stop(false);
-
-void worker()
-{
-    while (!stop.load(memory_order_relaxed)) {
-        // Do good work.
+while (1) {
+    if (atomic_load_explicit(&thrd_pool->state, memory_order_relaxed) == cancelled)
+        return EXIT_SUCCESS;
+    if (atomic_load_explicit(&thrd_pool->state, memory_order_relaxed) == running) {
+        // claim the job
+        job_t *job = atomic_load(&thrd_pool->head->prev);
+        while (!atomic_compare_exchange_strong_explicit(&thrd_pool->head->prev, &job,
+                                               job->prev, memory_order_release, 
+                                               memory_order_relaxed)) {
+        }
+        if (job->args == NULL) {
+            atomic_store(&thrd_pool->state, idle);
+        } else {
+            printf("Hello from job %d\n", *(int *)job->args);
+            free(job->args);
+            free(job); // could cause dangling pointer in other threads
+        }
+    } else {
+        /* To auto run when jobs added, set status to running if job queue is not empty.
+         * As long as the producer is protected */
+        thrd_yield();
+        continue;
     }
-}
-
-int main()
-{
-    launchWorker();
-    // Wait some...
-    stop = true; // seq_cst
-    joinWorker();
-}
+};
 \end{cppcode}
 We do not care if the contents of the loop are rearranged around the load.
-Nothing bad will happen so long as \texttt{stop} is only used to tell the worker to exit, and not to ``announce'' any new data.
+Nothing bad will happen so long as \texttt{cancelled} is only used to tell the worker to exit, and not to ``announce'' any new data.
 
 Finally, relaxed loads are commonly used with \textsc{CAS} loops.
-Return to our lock-free multiply:
-\begin{cppcode}
-void atomicMultiply(int by)
-{
-    int expected = foo.load(memory_order_relaxed);
-
-    while (!foo.compare_exchange_weak(
-        expected, expected * by,
-        memory_order_release,
-        memory_order_relaxed)) {
-        /* empty loop */
-    }
-}
-\end{cppcode}
+Continue the example above,
+a \textsc{CAS} loop is performed to claim a job.
 All of the loads can be relaxed as we do not need to enforce any order until we have successfully modified our value.
-The initial load of \texttt{expected} is not strictly necessary but can help avoid an extra loop iteration if \texttt{foo} remains unmodified by other threads before the \textsc{CAS} operation.
 
 \subsection{Acquire-Release}
 
