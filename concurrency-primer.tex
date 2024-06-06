@@ -883,6 +883,29 @@ The performance impact varies with numerous factors, such as thread count and CP
 Balancing complexity and performance is essential in concurrency, 
 a domain fraught with challenges.
 
+\subsection{ABA problem}
+We have introduced CAS as one of the read-modify-write operations.
+However, does the target object not changing really mean that no other threads modified it halfway through?
+Consider the following scenario,
+
+\begin{ccode}
+    /* example code place holder */
+    do { /* read and modify */ }
+    /* something can happen in between */
+    while(CAS);
+\end{ccode}
+
+If the target object is changed to something by other thread and changed back, the result of comparism is still equal.
+Although the target object has indeed been changed, causing the operation to not remain atomic.
+We call this \introduce{ABA problem}. In the example above, the presents of ABA problem leads to
+
+The ABA problem occurs when changes occur between reading and comparing, but the comparing mechanism is unable to identify that the state is not the latest.
+The maximum number we refer to may not be the actual maximum, and the next job may not be the same job.
+Failure to recognize this through comparison can result in outdated information.
+The general concept of solving this problem involves adding more information to make different state distinguishable, and then making a decision on whether to act on the old state or retry with the new state.
+If acting on the old state is chosen, then safe memory reclamation should be considered as memory may have already been freed by other threads.
+More aggressively, one might consider the programming paradigm where each operation on the target object does not have a side effect on modifying it.
+
 \section{Sequential consistency on weakly-ordered hardware}
 
 Different hardware architectures offer distinct memory models or \introduce{memory models}.
