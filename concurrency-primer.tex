@@ -886,25 +886,67 @@ a domain fraught with challenges.
 \subsection{ABA problem}
 We have introduced CAS as one of the read-modify-write operations.
 However, does the target object not changing really mean that no other threads modified it halfway through?
+If the target object is changed to something by other thread and changed back, the result of comparison is still equal.
+Although the target object has indeed been changed, causing the operation not remaining atomic.
+We call this \introduce{ABA problem}.
 Consider the following scenario,
 
+\inputminted{c}{./examples/simple_aba_example.c}
+
+Compile it with \monobox{gcc -std=c11 -Wall -Wextra -pthread simple\_aba\_example.c}.
+The execution result would be:
+
 \begin{ccode}
-    /* example code place holder */
-    do { /* read and modify */ }
-    /* something can happen in between */
-    while(CAS);
+    A: v = 42
+    B: v = 47
+    B: v = 42
+    A: v = 52
 \end{ccode}
 
-If the target object is changed to something by other thread and changed back, the result of comparism is still equal.
-Although the target object has indeed been changed, causing the operation to not remain atomic.
-We call this \introduce{ABA problem}. In the example above, the presents of ABA problem leads to
+In the example provided, the presence of ABA problem results in thread A being unaware that variable \monobox{v} has been altered.
+Since the comparison result indicates \monobox{v} unchanged, \monobox{v + 10} is swapped in.
+Here sleeping is only used to ensure the occurance of ABA problem.
+In real world scenario, instead of sleeping, thread A could paused by being context switched for other tasks, including being preempted by higher priority tasks.
+This example seems harmless, but things can get nasty when atomic \textsc{RMW} operations are used in more complex data structures.
 
-The ABA problem occurs when changes occur between reading and comparing, but the comparing mechanism is unable to identify that the state is not the latest.
-The maximum number we refer to may not be the actual maximum, and the next job may not be the same job.
-Failure to recognize this through comparison can result in outdated information.
+In a broader context, the ABA problem occurs when changes occur between loading and comparing, but the comparing mechanism is unable to identify that the state of the target object is not the latest, yielding a false positive result.
+
+Back to thread pool example in \secref{rmw}, it contains ABA problem as well.
+In \monobox{worker} function, we have the thread trying to claim the job.
+
+\begin{ccode}
+    job_t *job = atomic_load(&thrd_pool->head->prev);
+    while (!atomic_compare_exchange_strong(&thrd_pool->head->prev, &job,
+                                           job->prev)) {
+    }
+\end{ccode}
+
+Consider the following scenario:
+\begin{enumerate}
+    \item There is only one job left.
+    \item Thread A loads the pointer to the job by \monobox{atomic\_load()}.
+    \item Thread A is preempted.
+    \item Thread B claims the job and successfully updates \monobox{thrd\_pool->head->prev}.
+    \item Thread B sets thread pool state to idle.
+    \item Main thread fininshes waiting and adds more jobs.
+    \item Memory allocator reuses the recently freed memory as new jobs addresses.
+    \item Fortunately, the first added job has the same address as the one Thread A holded.
+    \item Thread A is back in running state. The comparison result is equal so it updates \monobox{thrd\_pool->head->prev} with the old \monobox{job->prev}, which is already a dangling pointer.
+    \item Another thread loads the dangling pointer from \monobox{thrd\_pool->head->prev}.
+\end{enumerate}
+
+Notice that even though \monobox{job->prev} is not loaded explicitly before comparison, compiler could place loading instructions before comparison.
+At the end, the dangling pointer could either point to garbage or trigger segmentation fault.
+It could be even worse if nested ABA problem occurs in thread B.
+
+Failure to recognize changed target object through comparison can result in stale information.
 The general concept of solving this problem involves adding more information to make different state distinguishable, and then making a decision on whether to act on the old state or retry with the new state.
 If acting on the old state is chosen, then safe memory reclamation should be considered as memory may have already been freed by other threads.
 More aggressively, one might consider the programming paradigm where each operation on the target object does not have a side effect on modifying it.
+In the later section, we will introduce a different way of implementing atomic \textsc{RMW} operations by using LL/SC instructions. The exclusiveness provided by LL/SC instructions avoids the pitfall introduced by comparison.
+
+To make different state distinguishable, a common solution is adding a version number to be compared as well.
+
 
 \section{Sequential consistency on weakly-ordered hardware}
 
