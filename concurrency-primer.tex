@@ -955,10 +955,10 @@ In the thread pool example, the target object is a pointer. The unused bits in a
 In addition to embedding the version number into a pointer, we could consider utilizing an additional 32-bit or 64-bit value next to the target object for the version number.
 It requires the compare-and-swap instruction to be capable of comparing a wider size at once.
 Sometimes, this is referred to as \introduce{double-width compare-and-swap}.
-On x86-64 processors, for atomic instructions that load or store more that a CPU word size, it needs additional hardware support.
-You can use \monobox{grep cx16 /proc/crpuinfo} to check if the processor supports 16-byte compare-and-swap.
+On x86-64 processors, for atomic instructions that load or store more than a CPU word size, it needs additional hardware support.
+You can use \monobox{\$ grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
 For hardware that does not support the desired size, software implementations which may have locks involve are used instead as mentioned in \secref{arbitrarily-size}.
-Back to the example, the following code is fixed by using an an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx64} to enable 16-byte compare-and-swap in \monobox{worker} function.
+Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx64} to enable 16-byte compare-and-swap in \monobox{worker} function.
 
 \inputminted{c}{./examples/rmw_example_aba.c}
 
@@ -969,7 +969,7 @@ Compiler optimizations are conservative on type punning, but it is acceptable fo
 See \secref{fusing}.
 Another way to prevent ABA problem in the example is using safe memory reclamation mechanisms.
 Different from previously mentioned acting on the old state, the address of a job is not freed until no one is using it.
-This prevents memory allocator or memory pool reuses the address and causing problem.
+This prevents memory allocator or memory pool from reusing the address and causing problem.
 
 \section{Sequential consistency on weakly-ordered hardware}
 
