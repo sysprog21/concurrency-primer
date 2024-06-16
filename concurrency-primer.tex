@@ -497,7 +497,7 @@ Jobs are taken from the tail of job queue.
 To claim a job without it being taken by another worker halfway through, we need to atomically change the pointer to the last job. Otherwise the last job is under races.
 The while loop in function \monobox{worker},
 \begin{ccode}
-while (!atomic_compare_exchange_strong(&thrd_pool->head->prev, &job,
+while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
                                        job->prev)) {
 }
 \end{ccode}
@@ -918,7 +918,7 @@ while (1) {
     if (atomic_load_explicit(&thrd_pool->state, memory_order_relaxed) == running) {
         // claim the job
         job_t *job = atomic_load(&thrd_pool->head->prev);
-        while (!atomic_compare_exchange_strong_explicit(&thrd_pool->head->prev, &job,
+        while (!atomic_compare_exchange_weak_explicit(&thrd_pool->head->prev, &job,
                                                job->prev, memory_order_release, 
                                                memory_order_relaxed)) {
         }

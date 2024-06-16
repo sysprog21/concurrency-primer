@@ -1,4 +1,3 @@
-#include <unistd.h>
 #include <stdio.h>
 #include <stdatomic.h>
 #include <threads.h>
@@ -33,7 +32,7 @@ typedef struct thread_pool {
     idle_job_t *head;
 } thread_pool_t;
 
-int worker(void *args)
+static int worker(void *args)
 {
     if (!args)
         return EXIT_FAILURE;
@@ -45,7 +44,7 @@ int worker(void *args)
         if (atomic_load(&thrd_pool->state) == running) {
             // claim the job
             job_t *job = atomic_load(&thrd_pool->head->prev);
-            while (!atomic_compare_exchange_strong(&thrd_pool->head->prev, &job,
+            while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
                                                    job->prev)) {
             }
             if (job->args == NULL) {
@@ -64,7 +63,7 @@ int worker(void *args)
     };
 }
 
-bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
+static bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
 {
     if (atomic_flag_test_and_set(&thrd_pool->initialezed)) {
         printf("This thread pool has already been initialized.\n");
@@ -102,7 +101,7 @@ bool thread_pool_init(thread_pool_t *thrd_pool, size_t size)
     return true;
 }
 
-void thread_pool_destroy(thread_pool_t *thrd_pool)
+static void thread_pool_destroy(thread_pool_t *thrd_pool)
 {
     if (atomic_exchange(&thrd_pool->state, cancelled))
         printf("Thread pool cancelled with jobs still running.\n");
@@ -120,7 +119,8 @@ void thread_pool_destroy(thread_pool_t *thrd_pool)
     atomic_flag_clear(&thrd_pool->initialezed);
 }
 
-__attribute__((nonnull(2))) bool add_job(thread_pool_t *thrd_pool, void *args)
+__attribute__((nonnull(2))) static bool add_job(thread_pool_t *thrd_pool,
+                                                void *args)
 {
     // May use memory pool for jobs
     job_t *job = malloc(sizeof(job_t));
@@ -142,6 +142,13 @@ __attribute__((nonnull(2))) bool add_job(thread_pool_t *thrd_pool, void *args)
     return true;
 }
 
+static inline void wait_until(thread_pool_t *thrd_pool, int state)
+{
+    while (atomic_load(&thrd_pool->state) != state) {
+        thrd_yield();
+    }
+}
+
 int main()
 {
     thread_pool_t thrd_pool = { .initialezed = ATOMIC_FLAG_INIT };
@@ -156,7 +163,7 @@ int main()
     }
     // Due to simplified job queue (not protecting producer), starting the pool manually
     atomic_store(&thrd_pool.state, running);
-    sleep(1);
+    wait_until(&thrd_pool, idle);
     for (int i = 0; i < N_JOBS; i++) {
         int *id = malloc(sizeof(int));
         *id = i;
