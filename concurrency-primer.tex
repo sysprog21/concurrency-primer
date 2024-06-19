@@ -204,8 +204,8 @@ void threadB()
 {
     // Await a value change and read it.
     while (!v_ready) { /* wait */ }
-    const int my_v = v;
-    // Do something with my_v...
+    const int b_v = v;
+    // Do something with b_v...
 }
 \end{ccode}
 We must ensure that other threads only observe \textit{A}'s write to \cc|v_ready| \emph{after A's} write to \cc|v|.
@@ -296,12 +296,12 @@ void *threadA()
 }
 \end{ccode}
 \begin{ccode}
-int bv;
+int b_v;
 
 void *threadB()
 {
     while(!v_ready) { /* wait */ }
-    bv = v;
+    b_v = v;
     /* Do something */
 }
 \end{ccode}
@@ -314,7 +314,7 @@ but the compiler ensures that other variables' loads and stores are not reordere
 Informally, we can think of atomic variables as rendezvous points for threads.
 By making \monobox{v\_ready} atomic,
 \monobox{v = 42}\, is now guaranteed to happen before \monobox{v\_ready = true}\, in thread~\textit{A},
-just as \monobox{my\_v = v}\, must happen after reading \monobox{v\_ready}\,
+just as \monobox{b\_v = v}\, must happen after reading \monobox{v\_ready}\,
 in thread~\textit{B}.
 Formally, atomic types establish a \textit{single total modification order} where,
 ``[\ldots] the result of any execution is the same as if the reads and writes occurred in some order, and the operations of each individual processor appear in this sequence in the order specified by its program.''
