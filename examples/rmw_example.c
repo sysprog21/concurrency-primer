@@ -4,10 +4,15 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <math.h>
+#include <stdio.h>
+
+#define PRECISION 100 /* upper bound in BPP sum */
 
 #define CACHE_LINE_SIZE 64
 #define N_JOBS 16
 #define N_THREADS 8
+
 
 typedef struct job {
     void *args;
@@ -147,6 +152,18 @@ static inline void wait_until(thread_pool_t *thrd_pool, int state)
     while (atomic_load(&thrd_pool->state) != state) {
         thrd_yield();
     }
+}
+
+/* Use Bailey–Borwein–Plouffe formula to approximate PI */
+static void *bbp(void *arg)
+{
+    int k = *(int *) arg;
+    double sum = (4.0 / (8 * k + 1)) - (2.0 / (8 * k + 4)) -
+                 (1.0 / (8 * k + 5)) - (1.0 / (8 * k + 6));
+    double *product = malloc(sizeof(double));
+    if (product)
+        *product = 1 / pow(16, k) * sum;
+    return (void *) product;
 }
 
 int main()
