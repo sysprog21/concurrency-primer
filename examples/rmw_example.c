@@ -14,7 +14,6 @@
 #define N_THREADS 64
 
 struct tpool_future {
-    atomic_int flag;
     void *result;
     atomic_flag lock;
 };
@@ -32,7 +31,7 @@ typedef struct idle_job {
     job_t job;
 } idle_job_t;
 
-enum state { __FUTURE_START, __FUTURE_FINISHED, idle, running, cancelled };
+enum state { idle, running, cancelled };
 
 typedef struct tpool {
     atomic_flag initialezed;
@@ -48,7 +47,6 @@ static struct tpool_future *tpool_future_create(void)
 {
     struct tpool_future *future = malloc(sizeof(struct tpool_future));
     if (future) {
-        future->flag = __FUTURE_START;
         future->result = NULL;
         atomic_flag_clear(&future->lock);
     }
@@ -57,7 +55,7 @@ static struct tpool_future *tpool_future_create(void)
 
 void tpool_future_get(struct tpool_future *future)
 {
-    while (future->flag != __FUTURE_FINISHED)
+    while (future->result == NULL)
         ;
     while (atomic_flag_test_and_set(&future->lock))
         ;
@@ -69,7 +67,7 @@ int tpool_future_destroy(struct tpool_future *future)
     if (future) {
         while (atomic_flag_test_and_set(&future->lock))
             ;
-        if (future->flag & __FUTURE_FINISHED) {
+        if (future->result != NULL) {
             free(future);
         } else {
             atomic_flag_clear(&future->lock);
@@ -100,7 +98,6 @@ static int worker(void *args)
 
                 while (atomic_flag_test_and_set(&job->future->lock))
                     ;
-                job->future->flag |= __FUTURE_FINISHED;
                 job->future->result = ret_value;
 
                 atomic_flag_clear(&job->future->lock);
