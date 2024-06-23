@@ -16,8 +16,7 @@
 struct tpool_future {
     atomic_int flag;
     void *result;
-    mtx_t mutex;
-    cnd_t cond_finished;
+    atomic_flag lock;
 };
 
 typedef struct job {
@@ -51,32 +50,29 @@ static struct tpool_future *tpool_future_create(void)
     if (future) {
         future->flag = __FUTURE_START;
         future->result = NULL;
-        mtx_init(&future->mutex, mtx_plain);
-        cnd_init(&future->cond_finished);
+        atomic_flag_clear(&future->lock);
     }
     return future;
 }
 
 void tpool_future_get(struct tpool_future *future)
 {
-    mtx_lock(&future->mutex);
-    while ((future->flag & __FUTURE_FINISHED) == 0) {
-        cnd_wait(&future->cond_finished, &future->mutex);
-    }
-    mtx_unlock(&future->mutex);
+    while (future->flag != __FUTURE_FINISHED)
+        ;
+    while (atomic_flag_test_and_set(&future->lock))
+        ;
+    atomic_flag_clear(&future->lock);
 }
 
 int tpool_future_destroy(struct tpool_future *future)
 {
     if (future) {
-        mtx_lock(&future->mutex);
+        while (atomic_flag_test_and_set(&future->lock))
+            ;
         if (future->flag & __FUTURE_FINISHED) {
-            mtx_unlock(&future->mutex);
-            mtx_destroy(&future->mutex);
-            cnd_destroy(&future->cond_finished);
             free(future);
         } else {
-            mtx_unlock(&future->mutex);
+            atomic_flag_clear(&future->lock);
         }
     }
     return 0;
@@ -102,13 +98,12 @@ static int worker(void *args)
             } else {
                 void *ret_value = job->func(job->args);
 
-                mtx_lock(&job->future->mutex);
-
+                while (atomic_flag_test_and_set(&job->future->lock))
+                    ;
                 job->future->flag |= __FUTURE_FINISHED;
                 job->future->result = ret_value;
-                cnd_broadcast(&job->future->cond_finished);
 
-                mtx_unlock(&job->future->mutex);
+                atomic_flag_clear(&job->future->lock);
                 free(job->args);
                 free(job);
             }
@@ -248,7 +243,6 @@ int main()
         *id = i;
         add_job(&thrd_pool, bbp, id);
     }
-
     for (int i = 0; i <= PRECISION; i++) {
         tpool_future_get(futures[i]);
         bbp_sum += *(double *)(futures[i]->result);
