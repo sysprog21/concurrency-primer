@@ -191,8 +191,10 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
         return NULL;
 
     struct tpool_future *future = tpool_future_create();
-    if (!future)
+    if (!future){
+        free(job);
         return NULL;
+    }
 
     // unprotected producer
     job->args = args;
