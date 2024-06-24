@@ -343,6 +343,15 @@ atomicity is fairly straightforward:
 just make sure that any variables used for thread synchronization
 are no larger than the \textsc{CPU} word size.
 
+\includegraphics[keepaspectratio, width=0.8\linewidth]{images/atomicity}
+\captionof{figure}{A flowchart depicting how two concurrent programs communicate and coordinate through a shared resource to achieve a goal, accessing the shared resource.}
+\label{atomicity}
+
+Summary of concepts from the first three sections, as shown in \fig{atomicity}.
+In \secref{background}, we observe the importance of maintaining the correct order of operations: t3 \to t4 \to t5 \to t6 \to t7, so that two concurrent programs can function as expected.
+In \secref{seqcst}, we see how two concurrent programs communicate to guarantee the order of operations: t5 \to t6.
+In \secref{atomicity}, we understand that certain operations must be treated as a single atomic step to ensure the order of operations: t3 \to t4 \to t5 and the order of operations: t6 \to t7.
+
 \section{Arbitrarily-sized ``atomic'' types}
 
 Along with \cc|atomic_int| and friends,
