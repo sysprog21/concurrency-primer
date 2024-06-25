@@ -6,7 +6,6 @@
 #include <assert.h>
 
 #include <math.h>
-#include <stddef.h>
 
 #define PRECISION 100 /* upper bound in BPP sum */
 
@@ -15,7 +14,7 @@
 
 struct tpool_future {
     void *result;
-    atomic_flag lock;
+    atomic_flag flag;
 };
 
 typedef struct job {
@@ -48,32 +47,22 @@ static struct tpool_future *tpool_future_create(void)
     struct tpool_future *future = malloc(sizeof(struct tpool_future));
     if (future) {
         future->result = NULL;
-        atomic_flag_clear(&future->lock);
+        atomic_flag_clear(&future->flag);
+        atomic_flag_test_and_set(&future->flag);
     }
     return future;
 }
 
-void tpool_future_get(struct tpool_future *future)
+void tpool_future_wait(struct tpool_future *future)
 {
-    while (future->result == NULL)
+    while (atomic_flag_test_and_set(&future->flag))
         ;
-    while (atomic_flag_test_and_set(&future->lock))
-        ;
-    atomic_flag_clear(&future->lock);
 }
 
-int tpool_future_destroy(struct tpool_future *future)
+void tpool_future_destroy(struct tpool_future *future)
 {
-    if (future) {
-        while (atomic_flag_test_and_set(&future->lock))
-            ;
-        if (future->result != NULL) {
-            free(future);
-        } else {
-            atomic_flag_clear(&future->lock);
-        }
-    }
-    return 0;
+    free(future->result);
+    free(future);
 }
 
 static int worker(void *args)
@@ -95,12 +84,8 @@ static int worker(void *args)
                 atomic_store(&thrd_pool->state, idle);
             } else {
                 void *ret_value = job->func(job->args);
-
-                while (atomic_flag_test_and_set(&job->future->lock))
-                    ;
                 job->future->result = ret_value;
-
-                atomic_flag_clear(&job->future->lock);
+                atomic_flag_clear(&job->future->flag);
                 free(job->args);
                 free(job);
             }
@@ -243,7 +228,7 @@ int main()
         add_job(&thrd_pool, bbp, id);
     }
     for (int i = 0; i <= PRECISION; i++) {
-        tpool_future_get(futures[i]);
+        tpool_future_wait(futures[i]);
         bbp_sum += *(double *)(futures[i]->result);
         tpool_future_destroy(futures[i]);
     }
