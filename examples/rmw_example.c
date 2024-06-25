@@ -162,8 +162,10 @@ static void *bbp(void *arg)
     double sum = (4.0 / (8 * k + 1)) - (2.0 / (8 * k + 4)) -
                  (1.0 / (8 * k + 5)) - (1.0 / (8 * k + 6));
     double *product = malloc(sizeof(double));
-    if (product)
-        *product = 1 / pow(16, k) * sum;
+    if (!product)
+        return NULL;
+        
+    *product = 1 / pow(16, k) * sum;
     return (void *)product;
 }
 
