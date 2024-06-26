@@ -550,28 +550,12 @@ Built-in post increment and decrement operators and compound assignment on atomi
 They behave equivalently to a \cc|do while| loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
 
 What if claiming a job, which updates \cc|thrd_pool->head->prev|, is not done atomically?
-Let's remove the atomicity of claiming a job and use thread sanitizer to detect races.
-Thread sanitizer is one of the sanitizers provided by \introduce{gcc} and \introduce{clang} to detect data races. 
-Data races are undefined behavior in \clang{}11 and \cplusplus{}11. 
-Thread sanitizer inserts runtime code into the target program to track memory accesses. 
-When races occur during execution, warning messages are printed.
-To enable this, add \monobox{-fsanitize=thread -g} to compiler flags.
-The following diff patch removes the atomicity of claiming a job and uses pthread instead of \clang{}11 thread, because thread sanitizer currently hasn't support \clang{}11 thread yet. 
-Save diff as \monobox{racer.diff} and patch the example code by \monobox{\$ patch rmw\_example.c race.diff}.
+Two or more threads could have races updating \cc|thrd_pool->head->prev| and working on the same job.
+Data races are undefined behavior in \clang{}11 and \cplusplus{}11.
+Working on the same job can lead to duplication of the calculation of \cc|job->future->result|, 
+use after free and double free on the job.
 
-%\inputminted{diff}{./examples/racer.diff}
-
-After compiling and running the example, you will see warning messages printed and same job IDs got echoed repeatly. 
-The top two sections of a warning message indicate which two threads executed which function causing the data race.
-The bottom two sections indicate how these two threads were created.
-If the race occurred on a heap block, a third section would appear indicating how the block was allocated.
-At the end of a warning message, a summary indicates the type of race and where it occurred.
-You'll see that two lines of code, which claim a job, are highlighted as causing a data race on \cc|thrd_pool->head|.
-
-You may notice that there is another part of the code causing races. 
-While some workers were echoing ID, others were attempting to free the job, resulting in heap-use-after-free and data races.
-This occurred when two workers claimed the same job, as the claiming process was not atomic.
-But even when jobs were claimed atomically, this still can occur.
+But even when jobs were claimed atomically, a thread can still have chances holding a job that has been freed.
 This is a defect of the example code.
 Jobs in the example are dynamically allocated. They are freed after worker finishes each job. 
 However, this situation may lead to dangling pointers for workers that are still holding and attempting to claim the job. 
