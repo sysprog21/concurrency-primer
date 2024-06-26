@@ -217,7 +217,7 @@ yet the reality is often more complex.
 Initially, any optimizing compiler will restructure your code to enhance performance on its target hardware.
 The primary objective is to maintain the operational effect within \emph{the current thread},
 allowing reads and writes to be rearranged to prevent pipeline stalls\footnote{%
-Most \textsc{CPU} architectures execute segments of multiple instructions concurrently to improve throughput (refer to \fig{pipeline}).
+Most \textsc{CPU} architectures execute segments of multiple instructions concurrently to improve throughput (refer to \fig{fig:pipeline}).
 A stall, or suspension of forward progress, occurs when an instruction awaits the outcome of a preceding one in the pipeline until the necessary result becomes available.} or to optimize data locality.\punckern\footnote{%
 \textsc{RAM} accesses data not byte by byte, but in larger units known as \introduce{cache lines}.
 Grouping frequently used variables on the same cache line means they are processed together,
@@ -232,21 +232,21 @@ Profile-guided optimization (PGO) often employs this strategy.}
 Even without compiler alterations,
 we would face challenges because our hardware complicates matters further!
 Modern \textsc{CPU}s operate in a fashion far more complex than what traditional pipelined methods,
-like those depicted in \fig{pipeline}, suggest.
+like those depicted in \fig{fig:pipeline}, suggest.
 They are equipped with multiple data paths tailored for various instruction types and schedulers that reorder and direct instructions through these paths.
 
 \includegraphics[keepaspectratio,width=0.7\linewidth]{images/pipeline}
 \captionof{figure}{A traditional five-stage \textsc{CPU} pipeline with fetch, decode, execute, memory access, and write-back stages.
                    Modern designs are much more complicated, often reordering instructions on the fly.}
-\label{pipeline}
+\label{fig:pipeline}
 
 It is quite common to form oversimplified views about memory operations.
-Picturing a multi-core processor setup might lead us to envision a model similar to \fig{ideal-machine},
+Picturing a multi-core processor setup might lead us to envision a model similar to \fig{fig:ideal-machine},
 wherein each core alternately accesses and manipulates the system's memory.
 \includegraphics[keepaspectratio, width=0.8\linewidth]{ideal-machine}
 \captionof{figure}{An idealized multi-core processor where cores
 take turns accessing a single shared set of memory.}
-\label{ideal-machine}
+\label{fig:ideal-machine}
 
 The reality is far from straightforward.
 Although processor speeds have surged exponentially in recent decades,
@@ -260,7 +260,7 @@ presents a significant challenge.
 
 \includegraphics[keepaspectratio, width=0.8\linewidth]{images/mp-cache}
 \captionof{figure}{A common memory hierarchy for modern multi-core processors}
-\label{dunnington}
+\label{fig:dunnington}
 
 The myriad complexities within multithreaded programs on multi-core \textsc{CPU}s lead to a lack of a uniform concept of ``now''.
 Establishing some semblance of order among threads requires a concerted effort involving the hardware,
@@ -348,15 +348,15 @@ are no larger than the \textsc{CPU} word size.
 
 \includegraphics[keepaspectratio, width=0.8\linewidth]{images/atomicity}
 \captionof{figure}{A flowchart depicting how two concurrent programs communicate and coordinate through a shared resource to achieve a goal, accessing the shared resource.}
-\label{atomicity}
+\label{fig:atomicity}
 
-Summary of concepts from the first three sections, as shown in \fig{atomicity}.
+Summary of concepts from the first three sections, as shown in \fig{fig:atomicity}.
 In \secref{background}, we observe the importance of maintaining the correct order of operations: t3 \to t4 \to t5 \to t6 \to t7, so that two concurrent programs can function as expected.
 In \secref{seqcst}, we see how two concurrent programs communicate to guarantee the order of operations: t5 \to t6.
 In \secref{atomicity}, we understand that certain operations must be treated as a single atomic step to ensure the order of operations: t3 \to t4 \to t5 and the order of operations: t6 \to t7.
 
 \section{Arbitrarily-sized ``atomic'' types}
-
+\label{atomictype}
 Along with \cc|atomic_int| and friends,
 \cplusplus{} provides the template \cpp|std::atomic<T>| for defining arbitrary atomic types.
 \clang{}, lacking a similar language feature but wanting to provide the same functionality,
@@ -384,93 +384,87 @@ static_assert(std::atomic<Foo>::is_always_lock_free);
 \label{rmw}
 
 So far we have introduced the importance of order and atomicity.
-The latter ensures that an operation can eventually finish without being interfered by other operations.
-This also establishes ordering between operations, as no operations can occur concurrently.
-For two operations, A and B, either A happens before B or B happens before A.
-As in \secref{seqcst}, a local order of other operations associated to the an atomic object is given as well, with \introduce{sequential consistency} as default consistency level.
-Since happens before relation is transitive, just like $>$ and $<$, a global order is established by combining local order and inter-thread order provided by atomic objects. 
+In \secref{seqcst}, we see how an atomic object ensures the order of single store or load operation is not reordered by the compiler within a program. 
+Only upon establishing the correct inter-thread order can we continue to pursue how multiple threads can establish a correct cross-thread order. 
+After achieving this goal, we can further explore how concurrent threads can coordinate and collaborate smoothly.
+In \secref{atomicity}, there is a need for atomicity to ensure that a group of operations is not only sequentially executed but also completes without being interrupted by operation from other threads.
+This establishes correct order of operations from different threads.
 
-Atomic loads and stores are all well and good when we don't need to consider the previous state of atomic variables.
-But sometimes we need to read a value, modify it,
-and write it back as a single atomic step.
-That is, the modification is based on the previous state that is visible for reading, and the result is then written back.
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/atomic_rmw}
+\captionof{figure}{Exchange, Test and Set, Fetch and…, Compare and Swap can all be transformed into atomic RMW operations, ensuring that operations like t1 \to t2 \to t3 will become an atomic step.}
+\label{fig:atomic_rmw}
+
+Atomic loads and stores are all well and good when we do not need to consider the previous state of atomic variables, but sometimes we need to read a value, modify it, and write it back as a single atomic step.
+As shown in \fig{fig:atomic_rmw}, the modification is based on the previous state that is visible for reading, and the result is then written back.
 A complete \introduce{read-modify-write} operation is performed atomically to ensure visibility to subsequent operations.
+  
+Furthermore, for communication between concurrent threads, a shared resource is required, as shown in \fig{fig:atomicity} 
+Think back to the discussion in previous sections. 
+In order for concurrent threads to collaborate on operating a shared resource, we need a way to communicate. 
+Thus, the need for a channel for communication arises with the appearance of the shared resource.
 
-There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations.
+As discussed earlier, the process of accessing shared resources responsible for communication must also ensure both order and non-interference. 
+To prevent the recursive protection of shared resources, 
+atomic operations can be introduced for the shared resources responsible for communication, as shown in \fig{fig:atomic_types}.
+
+There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations to make theses operation become a single atomic step.
 In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
 
-Following example code is a simplify implementation of thread pool to demonstrate the use of \clang{}11 atomic library.
-
-\inputminted{c}{./examples/rmw_example.c}
-
-Compile the code with \monobox{gcc rmw\_example.c -o rmw\_example -Wall -Wextra -std=c11 -pthread} and execute the program.
-A thread pool has three states: idle, cancelled and running. 
-It is initialized with \monobox{N\_THREADS} (default 8) of threads. 
-\monobox{N\_JOBS} (default 16) of jobs are added, and the pool is then set to running. 
-A job is simply echoing its job ID.
-\monobox{sleep(1)} is used to ensure that the second batch of jobs is added after the first batch is finished; otherwise, jobs may not be consumed as expected.
-Thread pool is then destroyed right after starting running.
-Possible stdout of the program is:
-\begin{ccode}
-Hello from job 5
-Hello from job 8
-Hello from job 9
-Hello from job 10
-Hello from job 11
-Hello from job 12
-Hello from job 13
-Hello from job 14
-Hello from job 15
-Hello from job 3
-Hello from job 1
-Hello from job 6
-Hello from job 4
-Hello from job 7
-Hello from job 2
-Hello from job 0
-Hello from job 0
-Hello from job 1
-Hello from job 3
-Hello from job 2
-Thread pool cancelled with jobs still running.
-\end{ccode}
+\includegraphics[keepaspectratio, width=1\linewidth]{images/atomic_types}
+\captionof{figure}{Test and Set (Left) and Compare and Swap (Right) leverage their functionality of checking and their atomicity to make other RMW operations perform atomically.
+The red color represents atomic RMW operations, while the blue color represents RMW operations that behave atomically.}
+\label{fig:atomic_types}
 
 \subsection{Exchange}
 \label{exchange}
-
-The simplest atomic \textsc{RMW} operation is an \introduce{exchange}:
-the current value is read and replaced with a new one.
-In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads current state and replaces it with "cancelled". A warning message is printed if the pool is destroyed when still running. 
-If the exchange is not performed atomically, we may initially get the state as "running". Subsequently, a thread could set the state to "cancelled" after finishing the last one, resulting in a false warning.
+Transform \textsc{RMW} into modifying a private variable first, 
+and then directly swapping the private variable with the shared variable. 
+Therefore, we only need to ensure that the second step, 
+which involves Read that load the shared variable and then Modify and Write that exchange it with the private variable, 
+is a single atomic step.
+This allows programmers to extensively modify the private variable beforehand and only write it to the shared variable when necessary. 
 
 \subsection{Test and set}
-
+\label{Testandset}
 \introduce{Test-and-set} works on a Boolean value:
 we read it, set it to \cpp|true|, and provide the value it held beforehand.
 \clang{} and \cplusplus{} offer a type dedicated to this purpose, called \monobox{atomic\_flag}.
-The value of the flag is indeterminate until initialized with \monobox{ATOMIC\_FLAG\_INIT} macro.
-A thread pool has a \monobox{atomic\_flag} indicating it's initialized or not. The flag ensures initialization is thread-safe, preventing a pool from being reinitialized.
-Function \monobox{thread\_pool\_init} sets the flag with \monobox{atomic\_flag\_test\_and\_set(\&thrd\_pool->initialezed)} first.
-If the return value is \monobox{true}, initialization is not performed again.
-Function \monobox{thread\_pool\_destroy} clears the flag with \monobox{atomic\_flag\_clear(\&thrd\_pool->initialezed)} after destroying everything.
+The initial value of an \monobox{atomic\_flag} is indeterminate until initialized with \monobox{ATOMIC\_FLAG\_INIT} macro.
+
+\introduce{Test-and-set} operations are not limited to just \textsc{RMW} functions; 
+they can also be utilized for constructing simple spinlock. 
+In this scenario, the flag acts as a shared resource for communication between threads. 
+Thus, spinlock implemented with \introduce{Test-and-set} operations ensures that entire \textsc{RMW} operations on shared resources are performed atomically, as shown in \fig{fig:atomic_types}.
+\label{spinlock}
+\begin{ccode}
+atomic_flag af = ATOMIC_FLAG_INIT;
+
+void lock()
+{
+    while (atomic_flag_test_and_set(&af)) { /* wait */ }
+}
+
+void unlock() { atomic_flag_clear(&af); }
+\end{ccode}
+If we call \cc|lock()| and the previous value is \cc|false|,
+we are the first to acquire the lock,
+and can proceed with exclusive access to whatever the lock protects.
+If the previous value is \cc|true|,
+someone else has acquired the lock and we must wait until they release it by clearing the flag.
 
 \subsection{Fetch and…}
-
-We can also read a value,
-perform a simple operation on it (such as addition, subtraction,
-or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous value,
-all as part of a single atomic operation.
-In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to idle. 
-Yet, in this case, it is not necessary, as the pool needs to be reinitialized for further use regardless.
-Its return value could be further utilized, for instance, to report the previous state and perform additional actions.
+Transform \textsc{RMW} to directly modify the shared variable (such as addition, subtraction,
+or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous value, 
+all as part of a single atomic operation. 
+Compare with \introduce{Exchange} \secref{exchange}, when programmers only need to make simple modification to the shared variable, 
+they can use \introduce{Fetch and…}.
 
 \subsection{Compare and swap}
 \label{cas}
-
 Finally, we have \introduce{compare-and-swap} (\textsc{CAS}),
 sometimes called \introduce{compare-and-exchange}.
-It allows us to conditionally exchange a value \emph{if} its previous value matches some expected one.
+It allows us to conditionally exchange a value \emph{if} its previous value matches the expected one.
 In \clang{} and \cplusplus{}, \textsc{CAS} resembles the following,
 if it were executed atomically:
 \begin{ccode}
@@ -492,6 +486,55 @@ bool atomic_compare_exchange_strong(A* obj, C* expected, C desired)
 Indeed, there is. However, we will delve into that topic later in \secref{spurious-llsc-failures}.
 \end{samepage}
 
+Because \textsc{CAS} involves an expected value comparison, 
+it allows \textsc{CAS} operations to extend beyond just \textsc{RMW} functions. 
+Here's how it works: First, read the shared resource and use this value as the expected value. 
+Modify the private variable, and then \textsc{CAS}. Compare the current shared variable with the expected shared variable. 
+If they match, it indicates that modify is exclusive, ant then write by swaping the shared variable with the private variable.
+If they don't match, it implies that interference from another thread has occurred.
+Subsequently, update the expected value with the current shared value and retry modify in a loop. 
+This iterative process allows \textsc{CAS} to serve as a communication mechanism between threads, 
+ensuring that entire \textsc{RMW} operations on shared resources are performed atomically.
+As shown in \fig{fig:atomic_types}, compared with \introduce{Test-and-set} \secref{Testandset}, 
+a thread that employs \textsc{CAS} can directly use the shared resource to check.
+It uses atomic \textsc{CAS} to ensure that Modify is atomic, 
+coupled with a while loop to ensure that the entire \textsc{RMW} can behave atomically.
+
+\subsection{example}
+\label{rmw_example}
+Following example code is a simplify implementation of thread pool to demonstrate the use of \clang{}11 atomic library.
+
+\inputminted{c}{./examples/rmw_example.c}
+
+%Compile the code with \monobox{gcc rmw\_example.c -o rmw\_example -Wall -Wextra -std=c11 -pthread} and execute the program.
+%A thread pool has three states: idle, cancelled and running. 
+%It is initialized with \monobox{N\_THREADS} (default 8) of threads. 
+%\monobox{N\_JOBS} (default 16) of jobs are added, and the pool is then set to running. 
+%A job is simply echoing its job ID.
+%\monobox{sleep(1)} is used to ensure that the second batch of jobs is added after the first batch is finished; otherwise, jobs may not be consumed as expected.
+%Thread pool is then destroyed right after starting running.
+Stdout of the program is:
+\begin{ccode}
+PI calculated with 101 terms: 3.141592653589793
+\end{ccode}
+
+\textbf{Exchange}
+In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads current state and replaces it with "cancelled". A warning message is printed if the pool is destroyed when still running. 
+If the exchange is not performed atomically, we may initially get the state as "running". Subsequently, a thread could set the state to "cancelled" after finishing the last one, resulting in a false warning.
+
+\textbf{Test and set}
+In the example, the scenario is as follows: 
+First, the main thread initially acquire a lock \monobox{future->flag} and then set it true, 
+which is akin to creating a job and then transfer its ownership to the worker. 
+Subsequently, the main thread will be blocked until the worker clear the flag. 
+This inidcate the main thread will wail until the worker completes the job and return the ownership back to the main thread, which ensure correct cooperation.
+
+\textbf{Fetch and…}
+In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to idle. 
+Yet, in this case, it is not necessary, as the pool needs to be reinitialized for further use regardless.
+Its return value could be further utilized, for instance, to report the previous state and perform additional actions.
+
+\textbf{Compare and swap}
 Once threads are created in the thread pool as workers, they will continuously search for jobs to do.
 Jobs are taken from the tail of job queue.
 To claim a job without it being taken by another worker halfway through, we need to atomically change the pointer to the last job. Otherwise the last job is under races.
@@ -516,7 +559,7 @@ To enable this, add \monobox{-fsanitize=thread -g} to compiler flags.
 The following diff patch removes the atomicity of claiming a job and uses pthread instead of \clang{}11 thread, because thread sanitizer currently hasn't support \clang{}11 thread yet. 
 Save diff as \monobox{racer.diff} and patch the example code by \monobox{\$ patch rmw\_example.c race.diff}.
 
-\inputminted{diff}{./examples/racer.diff}
+%\inputminted{diff}{./examples/racer.diff}
 
 After compiling and running the example, you will see warning messages printed and same job IDs got echoed repeatly. 
 The top two sections of a warning message indicate which two threads executed which function causing the data race.
@@ -1254,7 +1297,7 @@ a hour-long talk on this topic.
 \textit{\cpp|atomic<> Weapons|: The \cplusplus{11} Memory Model and Modern Hardware}}
 by Herb Sutter,
 a three-hour talk that provides a deeper dive.
-Also the source of figures \ref{ideal-machine} and \ref{dunnington}.
+Also the source of figures \ref{fig:ideal-machine} and \ref{fig:dunnington}.
 
 \href{https://www.akkadia.org/drepper/futex.pdf}{\textit{Futexes are Tricky}},
 a paper by Ulrich Drepper on how mutexes and other synchronization primitives can be built in Linux using atomic operations and syscalls.
