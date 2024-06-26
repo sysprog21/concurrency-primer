@@ -789,34 +789,34 @@ After all,
 they inhibit optimizations that your compiler and hardware would otherwise make.
 
 What if we could avoid some of this slowdown?
-consider the example provided in \secref{rmw},
-where an atomic pointer \monobox{prev} in \monobox{struct idle\_job} is assigned an address in function \monobox{thread\_pool\_init}:
-\begin{ccode}
-idle_job->job.args = NULL;
-idle_job->job.next = &idle_job->job;
-idle_job->job.prev = &idle_job->job;
-idle_job->prev = &idle_job->job; /* assign to atomic pointer */
-thrd_pool->func = worker;
-thrd_pool->head = idle_job;
-thrd_pool->state = idle;
-thrd_pool->size = size;
-\end{ccode}
-An simple assignment on an atomic object is equivalent to \cc|atomic_store(A* obj , C desired)|.
-In this case, statements above line 4 is guaranteed to happen before the atomic operation,
-and the atomic operation is guaranteed to happen before statements below line 4.
-However, this series of operations are filling fields in structures. They do not have data dependecies so they are not necessarily executed in some order.
+Consider a simple case like the spinlock from \secref{spinlock}.
+Between the \cc|lock()| and \cc|unlock()| calls,
+we have a \introduce{critical section} where we can safely modify shared state protected by the lock.
+Outside this critical section,
+we only read and write to things that are not shared with other threads.
+\begin{cppcode}
+deepThought.calculate(); // non-shared
+
+lock(); // Lock; critical section begins
+sharedState.subject = "Life, the universe and everything";
+sharedState.answer = 42;
+unlock(); // Unlock; critical section ends
+
+demolishEarth(vogons); // non-shared
+\end{cppcode}
+
+It is vital that reads and writes to shared memory do not move outside the critical section.
+But the opposite is not true!
+The compiler and hardware could move as much as they want \emph{into} the critical section without causing any trouble.
 We have no problem with the following if it is somehow faster:
-\begin{ccode}
-idle_job->prev = &idle_job->job; /* assign to atomic pointer */
-idle_job->job.args = NULL;
-idle_job->job.next = &idle_job->job;
-idle_job->job.prev = &idle_job->job;
-thrd_pool->func = worker;
-thrd_pool->head = idle_job;
-thrd_pool->state = idle;
-thrd_pool->size = size;
-\end{ccode}
-The compiler is free to reorder instructions and the befavior of \monobox{thread\_pool\_init} would remain the same.
+\begin{cppcode}
+lock(); // Lock; critical section begins
+deepThought.calculate(); // non-shared
+sharedState.subject = "Life, the universe and everything";
+sharedState.answer = 42;
+demolishEarth(vogons); // non-shared
+unlock(); // Unlock; critical section ends
+\end{cppcode}
 So, how do we tell the compiler as much?
 
 \section{Memory orderings}
