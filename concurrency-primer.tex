@@ -321,8 +321,14 @@ Formally, atomic types establish a \textit{single total modification order} wher
 This model, defined by Leslie Lamport in 1979,
 is called \introduce{sequential consistency}.
 
-Notice that using atomic variables as an lvalue expression, such as \monobox{v\_ready = true} and \monobox{while(!v\_ready)}, is a convenient alternative to explicitly using \monobox{atomic\_load} or \monobox{atomic\_store}. 
-Lvalue-to-rvalue conversion (which models a memory read from an atomic location to a CPU register) strips atomicity along with other qualifiers. 
+Notice that using atomic variables as an lvalue expression, such as \monobox{v\_ready = true} and \monobox{while(!v\_ready)}, is a convenient alternative to explicitly using \monobox{atomic\_load} or \monobox{atomic\_store}.\punckern\footnote{%
+Atomic load/store are not necessary generated as atomic instructions.
+Under a weaker consistency model, they could simply be normal load/store,
+and their code generation can vary across different architectures.
+Checkout \href{https://llvm.org/docs/Atomics.html\#atomics-and-codegen}{LLVM's document} as an example to see how it is handled.}
+As stated in C11 6.7.2.4 and 6.7.3, the properties associated with atomic types are meaningful only for expressions that are
+lvalues.
+Lvalue-to-rvalue conversion (which models a memory read from an atomic location to a CPU register) strips atomicity along with other qualifiers.
 
 \section{Atomicity}
 \label{atomicity}
@@ -465,7 +471,7 @@ they can use \introduce{Fetch and…}.
 Finally, we have \introduce{compare-and-swap} (\textsc{CAS}),
 sometimes called \introduce{compare-and-exchange}.
 It allows us to conditionally exchange a value \emph{if} its previous value matches the expected one.
-In \clang{} and \cplusplus{}, \textsc{CAS} resembles the following,
+In \clang{} and \cplusplus{}, as noted in C11 7.17.7.4, \textsc{CAS} resembles the following,
 if it were executed atomically:
 \begin{ccode}
 /* A is an atomic type. C is the non-atomic type corresponding to A */
@@ -952,7 +958,9 @@ while (1) {
         if (job->args == NULL) {
             atomic_store(&thrd_pool->state, idle);
         } else {
-            printf("Hello from job %d\n", *(int *)job->args);
+            void *ret_value = job->func(job->args);
+            job->future->result = ret_value;
+            atomic_flag_clear(&job->future->flag);
             free(job->args);
             free(job); // could cause dangling pointer in other threads
         }
