@@ -1094,15 +1094,13 @@ So, how do we tell the compiler as much?
 
 When a program is compiled and executed, it doesn't always follow the written order. The system may change the sequence and optimize it to simulate line-by-line execution, as long as the final result matches the expected outcome.
 
-This requires an agreement between the programmer and the system (hardware, compiler, etc.), ensuring that if the rules are followed, the execution will be correct. Correctness here means defining permissible outcomes among all possible results, known as Memory Consistency Models. These models allow the system to optimize while ensuring correct execution.
+This requires an agreement between the programmer and the system (hardware, compiler, etc.), ensuring that if the rules are followed, the execution will be correct. Correctness here means defining permissible outcomes among all possible results, known as memory consistency models. These models allow the system to optimize while ensuring correct execution.
 
-Memory Consistency Models operate at various levels. For example, when machine code runs on hardware, processors can reorder and optimize instructions, and the results must match expectations. Similarly, when converting high-level languages to assembly, compilers can rearrange instructions while ensuring consistent outcomes. Thus, from source code to hardware execution, agreements must ensure the expected results.
-
-One can envision hardware that achieves sequential consistency as follows: each thread has direct access to shared memory, and memory processes only one read or write operation at a time. This naturally ensures sequential consistency.
+Memory consistency models operate at various levels. For example, when machine code runs on hardware, processors can reorder and optimize instructions, and the results must match expectations. Similarly, when converting high-level languages to assembly, compilers can rearrange instructions while ensuring consistent outcomes. Thus, from source code to hardware execution, agreements must ensure the expected results.
 
 \subsubsection{Sequential consistency (SC)}
 
-In the 1970s, Leslie Lamport proposed the most common memory consistency model, Sequential Consistency (SC), defined as follows:
+In the 1970s, Leslie Lamport proposed the most common memory consistency model, sequential consistency (SC), defined as follows:
 
 \begin{quote}
 A multiprocessor system is sequentially consistent if the result of any execution is the same as if the operations of all the processors were executed in some sequential order, and the operations of each individual processor appear in this sequence in the order specified by its program.
@@ -1117,6 +1115,7 @@ It is important to note that sequential consistency does not imply a single orde
 To enhance the understanding of sequential consistency, consider the following simple example. Two threads write to and read from two shared variables \monobox{x} and \monobox{y}, both initially set to \monobox{0}.
 
 \begin{ccode}
+// Litmus Test: Message Passing
 int x = 0;
 int y = 0;
 
@@ -1141,12 +1140,88 @@ If this program satisfies sequential consistency, then for Thread 1, \monobox{x 
 
 Observing these orders, we see that none result in \monobox{r1 = 1} and \monobox{r2 = 0}. Thus, sequential consistency only allows the outcomes \monobox{(r1, r2)} to be \monobox{(1, 1)}, \monobox{(0, 1)}, and \monobox{(0, 0)}. With this convention, software can expect that \monobox{(1, 0)} will not occur, and hardware can optimize as long as it ensures the result \monobox{(1, 0)} does not appear.
 
-We can imagine sequentially consistent hardware as the figure \ref{hw-seq-cst} shows: each thread can directly access shared memory, and memory processes one read or write operation at a time, naturally ensuring sequential consistency. In fact, there are multiple ways to implement sequentially consistent hardware. It can even include caches and be banked, as long as it ensures that the results behave the same as the aforementioned model.
-
-\centering
+\begin{center}
 \includegraphics[keepaspectratio,width=0.7\linewidth]{images/hw-seq-cst}
 \captionof{figure}{The memory model of sequentially consistent hardware.}
 \label{hw-seq-cst}
+\end{center}
+
+We can imagine sequentially consistent hardware as the figure \ref{hw-seq-cst} shows: each thread can directly access shared memory, and memory processes one read or write operation at a time, naturally ensuring sequential consistency. In fact, there are multiple ways to implement sequentially consistent hardware. It can even include caches and be banked, as long as it ensures that the results behave the same as the aforementioned model.
+
+\subsubsection{Total store order (TSO)}
+
+Although sequential consistency is considered the "golden standard" for multi-threaded programs, its many constraints limit performance optimization. As a result, it is rarely implemented in modern processors. Instead, more relaxed memory models are used, such as the total store order (TSO) memory model adopted by the x86 architecture. One can envision the hardware roughly as follows:
+
+\begin{center}
+\includegraphics[keepaspectratio,width=0.7\linewidth]{images/hw-tso}
+\captionof{figure}{The memory model of x86-TSO hardware.}
+\label{hw-tso}
+\end{center}
+
+All processors can read from a single shared memory, but each processor writes only to its own write queue.
+
+Consider the following Write Queue (Store Buffer) Litmus Test:
+
+\begin{ccode}
+// Litmus Test: Write Queue (Store Buffer)
+int x = 0;
+int y = 0;
+
+// Thread 1        // Thread 2
+x = 1;             y = 1;
+r1 = y;            r2 = x;
+\end{ccode}
+
+Sequential consistency does not allow \monobox{r1 = r2 = 0}, but TSO does. In a sequentially consistent memory model, \monobox{x = 1} or \monobox{y = 1} must be written first, followed by the read operations, so \monobox{r1 = r2 = 0} cannot occur. However, under the TSO memory model, the write operations from both threads might still be in their respective queues when the read operations occur, allowing \monobox{r1 = r2 = 0}.
+
+Non-sequentially consistent hardware typically supports additional memory barrier (fence) instructions to control the order of read and write operations. These barriers ensure that writes before the barrier are completed (queues emptied) before any subsequent reads are performed.
+
+\begin{ccode}
+// Thread 1           // Thread 2
+x = 1;                y = 1;
+barrier;              barrier;
+r1 = y;               r2 = x;
+\end{ccode}
+
+The reason total store order (TSO) is named as such is because once a write operation reaches shared memory, it indicates that all processors are aware that the value has been written. There will be no situation where different processors see different values. That is, the following litmus test will not have \monobox{r1 = 1}, \monobox{r2 = 0}, \monobox{r3 = 1}, but \monobox{r4 = 0}.
+
+Consider the following Independent Reads of Independent Writes (IRIW) Litmus Test:
+
+\begin{ccode}
+// Litmus Test: Independent Reads of Independent Writes (IRIW)
+int x = 0;
+int y = 0;
+
+// Thread 1    // Thread 2    // Thread 3    // Thread 4
+x = 1;         y = 1;         r1 = x;        r3 = y;
+                              r2 = y;        r4 = x;
+\end{ccode}
+
+Once Thread 3 reads \monobox{r1 = 1}, \monobox{r2 = 0}, it indicates that the write \monobox{x = 1} reached shared memory before \monobox{y = 1}. If at this point Thread 4 reads \monobox{r3 = 1}, it means both writes \monobox{y = 1} and \monobox{x = 1} are visible to Thread 4, so \monobox{r4} can only be \monobox{1}. We can say "Thread 1's write to \monobox{x}" happens before "Thread 2's write to \monobox{y}".
+
+\subsubsection{Relaxed memory order (RMO)}
+
+\begin{center}
+\includegraphics[keepaspectratio,width=0.4\linewidth]{images/hw-relaxed}
+\captionof{figure}{The memory model of \textsc{Arm} relaxed hardware.}
+\label{hw-relaxed}
+\end{center}
+
+As shown in figure \ref{hw-relaxed}, the \textsc{Arm} instruction set adopts a more relaxed memory model. Each thread maintains its own copy of the memory, and every read and write operation targets this private copy. When writing to its own memory, it also propagates the changes to the memory of other threads. Thus, this model does not have a total store order. Furthermore, read operations can be delayed until they are actually needed.
+
+The write order seen by one thread can differ from the order seen by other threads because write operations can be reordered during propagation. However, reads and writes to the same memory address must still follow a total order. Therefore, the following litmus test cannot result in \monobox{r1 = 1}, \monobox{r2 = 2}, but \monobox{r3 = 2}, \monobox{r4 = 1}. Which write overwrites which must be visible to all threads. This guarantee is known as coherence. Without coherence, programming for such a system would be very difficult.
+
+All the litmus tests mentioned above are allowed under the relaxed memory model of \textsc{Arm}, except for the following example. Neither \textsc{Arm}, x86-TSO, nor sequential consistency model would result in \monobox{r1 = 1}, \monobox{r2 = 2}, \monobox{r3 = 2}, and \monobox{r4 = 1}.
+
+\begin{ccode}
+// Litmus Test: Coherence
+int x = 0;
+int y = 0;
+
+// Thread 1    // Thread 2    // Thread 3    // Thread 4
+x = 1;         x = 2;         r1 = x;        r3 = x;
+                              r2 = x;        r4 = x;
+\end{ccode}
 
 \subsection{C11/C++11 atomics}
 
