@@ -499,6 +499,66 @@ bool cancel()
 }
 \end{cppcode}
 
+\section{Shared Resources}
+\label{false-sharing}
+From \secref{rmw}, we have understood that there are two types of shared resources that need to be considered. 
+The first type is shared resources that concurrent threads will access in order to collaborate to achieve a goal. 
+The second type is shared resources that serve as a communication channel for concurrent threads, 
+ensuring correct access to shared resources. 
+However, all of these considerations stem from a programming perspective, 
+where we only distinguish between shared resources and private resources. 
+
+Given all the complexities to consider, modern hardware adds another layer to the puzzle, 
+as depicted in \fig{ideal-machine}. 
+Remember, memory moves between the main \textsc{RAM} and the \textsc{CPU} in segments known as cache lines. 
+These lines also represent the smallest unit of data transferred between cores and their caches. 
+When one core writes a value and another reads it, 
+the entire cache line containing that value must be transferred from the first core's cache(s) to the second, 
+ensuring a coherent ``view'' of memory across cores. This dynamic can significantly affect performance.
+
+This slowdown is even more insidious when it occurs between unrelated variables that happen to be placed on the same shared resource, 
+which is the cache line, as shown in \fig{fig:false-sharing}. 
+When designing concurrent data structures or algorithms, 
+this \introduce{false sharing} must be taken into account. 
+One way to avoid it is to pad atomic variables with a cache line of private data, 
+but this is obviously a large space-time trade-off.
+
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/false-sharing}
+\captionof{figure}{Processor 1 and Processor 2 operate independently on variables A and B. 
+Simultaneously, they read the cache line containing these two variables. 
+In the next time step, each processor modifies A and B in their private L1 cache separately. 
+Subsequently, both processors write their modified cache line to the shared L2 cache. 
+At this moment, the expansion of the scope of shared resources to encompass cache lines highlights the importance of considering cache coherence issues.}
+\label{fig:false-sharing}
+
+Not only shared resources, 
+but we also need to consider shared resources that serve as a communication channel, e.g. spinlock (see \secref{spinlock}).
+Processors communicate through cache lines when using locks. 
+When a processor broadcasts the release of a lock, 
+multiple processors on different cores attempt to acquire the lock simultaneously. 
+To ensure a consistent state of the lock across all L1 cache lines, 
+which is a part of cache coherence, 
+the cache line containing the lock will be continually transferred among the caches of those cores.
+Unless the critical sections are considerably lengthy, 
+the time spent managing this cache line movement could exceed the time spent within the critical sections themselves,\punckern\footnote{%
+This situation underlines how some systems may experience a cache miss that is substantially more costly than an atomic \textsc{RMW} operation,
+as discussed in Paul~E.\ McKenney's
+\href{https://www.youtube.com/watch?v=74QjNwYAJ7M}{talk from CppCon~2017}
+for a deeper exploration.}
+despite the algorithm's non-blocking nature.
+
+With these high communication costs, there may be only one processor that succeeds in acquiring it again in the case of mutex lock or spinlock, as shown in \fig{fig:spinlock}. 
+Then the other processors that have not successfully acquired the lock will continue to wait, 
+resulting in little practical benefit (only one processor gains the lock) and significant communication overhead. 
+This disparity severely limits the scalability of the spin lock.
+
+\includegraphics[keepaspectratio, width=0.9\linewidth]{images/spinlock}
+\captionof{figure}{Three processors use lock to communicate to insure the access operations to the shared L2 cache will be correct. 
+Processors 2 and 3 are trying to acquire a lock that is held by Processor 1. 
+Therefore, when processor 1 unlocks, 
+the state of lock needs to be updated on other processors' L1 cache.}
+\label{fig:spinlock}
+
 \section{Atomic operations as building blocks}
 
 Atomic loads, stores, and \textsc{RMW} operations are the building blocks for every single concurrency tool.
@@ -802,7 +862,7 @@ A release works the opposite manner, allowing actions to move in an $after \to b
 On \textsc{Arm} and other weakly-ordered architectures, this enables us to eliminate one of the memory barriers in each operation,
 such that
 
- \begin{cppcode}
+\begin{cppcode}
 int acquireFoo()
 {
     return foo.load(memory_order_acquire);
@@ -1049,45 +1109,6 @@ Since most programming languages have converged on the memory model we have been
 \textsc{Arm}v8 processors offer dedicated load-acquire and store-release instructions: \keyword{lda} and \keyword{stl}.
 Hopefully, future \textsc{CPU} architectures will follow suit.
 
-\section{Cache effects and false sharing}
-\label{false-sharing}
-
-Given all the complexities to consider, modern hardware adds another layer to the puzzle.
-Remember, memory moves between main \textsc{RAM} and the \textsc{CPU} in segments known as cache lines.
-These lines also represent the smallest unit of data transferred between cores and their caches.
-When one core writes a value and another reads it,
-the entire cache line containing that value must be transferred from the first core's cache(s) to the second,
-ensuring a coherent ``view'' of memory across cores.
-
-This dynamic can significantly affect performance.
-Take a readers-writer lock, for example,
-which prevents data races by allowing either a single writer or multiple readers access to shared data but not simultaneously.
-At its most basic, this concept can be summarized as follows:
-\begin{cppcode}
-struct RWLock {
-    int readers;
-    bool hasWriter; // Zero or one writers
-};
-\end{cppcode}
-Writers must wait until the \cc|readers| count drops to zero,
-while readers can acquire the lock through an atomic \textsc{RMW} operation if \cc|hasWriter| is \cpp|false|.
-
-At first glance, this approach might seem significantly more efficient than exclusive locking mechanisms (e.g., mutexes or spinlocks) in scenarios where shared data is read more frequently than written.
-However, this perspective overlooks the impact of cache coherence.
-If multiple readers on different cores attempt to acquire the lock simultaneously,
-the cache line containing the lock will constantly be transferred among the caches of those cores.
-Unless the critical sections are considerably lengthy,
-the time spent managing this cache line movement could exceed the time spent within the critical sections themselves,\punckern\footnote{%
-This situation underlines how some systems may experience a cache miss that is substantially more costly than an atomic \textsc{RMW} operation,
-as discussed in Paul~E.\ McKenney's
-\href{https://www.youtube.com/watch?v=74QjNwYAJ7M}{talk from CppCon~2017}
-for a deeper exploration.}
-despite the algorithm's non-blocking nature.
-
-This slowdown is even more insidious when it occurs between unrelated variables that happen to be placed on the same cache line.
-When designing concurrent data structures or algorithms,
-this \introduce{false sharing} must be taken into account.
-One way to avoid it is to pad atomic variables with a cache line of unshared data, but this is obviously a large space-time tradeoff.
 
 \section{If concurrency is the question, \texttt{volatile} is not the answer.}
 % Todo: Add ongoing work from JF's CppCon 2019 talk?
