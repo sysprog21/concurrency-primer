@@ -221,7 +221,7 @@ Most \textsc{CPU} architectures execute segments of multiple instructions concur
 A stall, or suspension of forward progress, occurs when an instruction awaits the outcome of a preceding one in the pipeline until the necessary result becomes available.} or to optimize data locality.\punckern\footnote{%
 \textsc{RAM} accesses data not byte by byte, but in larger units known as \introduce{cache lines}.
 Grouping frequently used variables on the same cache line means they are processed together,
-significantly boosting performance. However, as discussed in \secref{false-sharing},
+significantly boosting performance. However, as discussed in \secref{shared-resources},
 this strategy can lead to complications when cache lines are shared across cores.}
 
 Variables may be allocated to the same memory location if their usage does not overlap.
@@ -500,7 +500,7 @@ bool cancel()
 \end{cppcode}
 
 \section{Shared Resources}
-\label{false-sharing}
+\label{shared-resources}
 From \secref{rmw}, we have understood that there are two types of shared resources that need to be considered. 
 The first type is shared resources that concurrent threads will access in order to collaborate to achieve a goal. 
 The second type is shared resources that serve as a communication channel for concurrent threads, 
@@ -559,14 +559,18 @@ Therefore, when processor 1 unlocks,
 the state of lock needs to be updated on other processors' L1 cache.}
 \label{fig:spinlock}
 
-\section{Atomic operations as building blocks}
+\section{Concurrency tool and Synchronization}
 
 Atomic loads, stores, and \textsc{RMW} operations are the building blocks for every single concurrency tool.
 It is useful to split those tools into two camps:
 \introduce{blocking} and \introduce{lockless}.
 
-Blocking synchronization methods are generally easier to understand,
-but they can cause threads to pause for unpredictable durations.
+As mentioned in \secref{rmw}, multiple threads can use these blocking tools to communicate with others. 
+Furthermore, these blocking tools can even assist in synchronization between threads. 
+The blocking mechanism is quite simple, 
+because all threads need to do is block others in order to make their own progress. 
+However, this simplicity can also cause threads to pause for unpredictable durations and then influence the throughput of the overall system.
+
 Take a mutex as an example:
 it requires threads to access shared data sequentially.
 If a thread locks the mutex and another attempts to lock it too,
@@ -575,30 +579,35 @@ until the first one unlocks it, regardless of the wait time.
 Additionally, blocking mechanisms are prone to \introduce{deadlock} and \introduce{livelock},
 issues that lead to the system becoming immobilized as threads perpetually wait on each other.
 
-In contrast, lockless synchronization methods ensure that the program is always making forward progress.
-These are \introduce{non-blocking} since no thread can cause another to wait indefinitely.
-Consider a program that streams audio,
-or an embedded system where a sensor triggers an interrupt service routine (\textsc{ISR}) when new data arrives.
-We want lock-free algorithms and data structures in these situations,
-since blocking could break them.
-(In the first case, the user's audio will begin to stutter if sound data is not provided at the bitrate it is consumed.
-In the second, subsequent sensor inputs could be missed if the \textsc{isr} does not complete as quickly as possible.)
+If the second thread holds another mutex first, 
+then a thread locks the mutex and subsequently tries to lock the other mutex that is held by the second thread, 
+then the deadlock occurs. 
+Therefore, we can see that deadlock happens when different threads lock in incompatible orders, 
+which leads to the system becoming immobilized as threads perpetually wait on each other. 
 
-% FIXME: remove this hack
-% LaTeX provides 9 symbols when using symbol option, therefore it produces an error if we count higher.
-\setcounter{footnote}{0}
-Lockless algorithms are not inherently superior or quicker than blocking ones;
-they serve different purposes with their own design philosophies.
-Additionally, the mere use of atomic operations does not render algorithms lock-free.
-For example, our basic spinlock discussed in \secref{spinlock} is still considered a blocking algorithm even though it eschews \textsc{OS}-specific syscalls for making the blocked thread sleep.
-Putting a blocked thread to sleep is often an optimization,
-allowing the operating system's scheduler to allocate \textsc{CPU} resources to active threads until the blocked one is revived.
-Some concurrency libraries even introduce hybrid locks that combine brief spinning with sleeping to balance \textsc{CPU} usage and context-switching overheads.
+Additionally, in \secref{shared-resources}, 
+we can see another problem with the lock: its scalability is limited.
 
-Both blocking and lockless approaches have their place in software development.
-When performance is a key consideration, it is crucial to profile your application.
-The performance impact varies with numerous factors, such as thread count and \textsc{CPU} architecture specifics.
-Balancing complexity and performance is essential in concurrency, a domain fraught with challenges.
+After understanding the issue that blocking mechanisms are prone to, 
+we try to achieve synchronization between threads without lock. 
+Consider this program: if there is only a single thread, execute these operations as follows:
+
+\begin{cppcode}
+while (x == 0)
+{
+    x = 1 - x;
+}
+\end{cppcode}
+
+When executed by a single thread, these operations complete within a finite time. 
+However, with two threads executing concurrently, 
+if one thread executes `x = 1 - x` and the other thread executes `x = 1 - x` subsequently, 
+then the value of x will always be 0, which will lead to livelock. 
+Therefore, even without any locks in concurrent threads, 
+they still cannot guarantee that the overall system can make progress toward achieving the programmer's goals.
+
+Consequently, we should not focus on comparing which communication tools or synchronization mechanisms are better, 
+but rather on exploring how to effectively use these tools in a given scenario to facilitate smooth communication between threads and achieve the programmer's goals.
 
 \section{Sequential consistency on weakly-ordered hardware}
 
