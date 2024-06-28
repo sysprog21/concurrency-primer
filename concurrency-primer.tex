@@ -1090,6 +1090,66 @@ So, how do we tell the compiler as much?
 
 \section{Memory orderings}
 
+\subsection{Memory consistency models}
+
+When a program is compiled and executed, it doesn't always follow the written order. The system may change the sequence and optimize it to simulate line-by-line execution, as long as the final result matches the expected outcome.
+
+This requires an agreement between the programmer and the system (hardware, compiler, etc.), ensuring that if the rules are followed, the execution will be correct. Correctness here means defining permissible outcomes among all possible results, known as Memory Consistency Models. These models allow the system to optimize while ensuring correct execution.
+
+Memory Consistency Models operate at various levels. For example, when machine code runs on hardware, processors can reorder and optimize instructions, and the results must match expectations. Similarly, when converting high-level languages to assembly, compilers can rearrange instructions while ensuring consistent outcomes. Thus, from source code to hardware execution, agreements must ensure the expected results.
+
+One can envision hardware that achieves sequential consistency as follows: each thread has direct access to shared memory, and memory processes only one read or write operation at a time. This naturally ensures sequential consistency.
+
+\subsubsection{Sequential consistency (SC)}
+
+In the 1970s, Leslie Lamport proposed the most common memory consistency model, Sequential Consistency (SC), defined as follows:
+
+\begin{quote}
+A multiprocessor system is sequentially consistent if the result of any execution is the same as if the operations of all the processors were executed in some sequential order, and the operations of each individual processor appear in this sequence in the order specified by its program.
+\end{quote}
+
+On modern processors, ensuring sequential consistency involves many optimization constraints, which slow down program execution. If some conventions are relaxed, such as not guaranteeing program order within each processing unit, performance can be further improved.
+
+A memory consistency model is a conceptual convention. This means the program's execution results must conform to this model. However, when a program is compiled and run on computer hardware, there is significant flexibility in adjusting the execution order. As long as the execution results match the predefined convention, the actual order can vary depending on the circumstances.
+
+It is important to note that sequential consistency does not imply a single order or a single result for the program. On the contrary, sequential consistency only requires that the program appears to execute in some interleaved order on a single thread, meaning a sequentially consistent program can still have multiple possible results.
+
+To enhance the understanding of sequential consistency, consider the following simple example. Two threads write to and read from two shared variables \monobox{x} and \monobox{y}, both initially set to \monobox{0}.
+
+\begin{ccode}
+int x = 0;
+int y = 0;
+
+// Thread 1        // Thread 2
+x = 1;             r1 = y;
+y = 1;             r2 = x;
+\end{ccode}
+
+If this program satisfies sequential consistency, then for Thread 1, \monobox{x = 1} must occur before \monobox{y = 1}, and for Thread 2, \monobox{r1 = y} must occur before \monobox{r2 = x}. For the entire program, the following six execution orders are possible:
+
+\begin{verbatim}
+|  x = 1            |  x = 1            |  x = 1            |
+|  y = 1            |        r1 = y(0)  |        r1 = y(0)  |
+|        r1 = y(1)  |  y = 1            |        r2 = x(1)  |
+|        r2 = x(1)  |        r2 = y(1)  |  y = 1            |
++-------------------+-------------------+-------------------+
+|        r1 = y(0)  |        r1 = y(0)  |        r1 = y(0)  |
+|  x = 1            |  x = 1            |        r2 = x(0)  |
+|  y = 1            |        r2 = x(1)  |  x = 1            |
+|        r2 = x(1)  |  y = 1            |  y = 1            |
+\end{verbatim}
+
+Observing these orders, we see that none result in \monobox{r1 = 1} and \monobox{r2 = 0}. Thus, sequential consistency only allows the outcomes \monobox{(r1, r2)} to be \monobox{(1, 1)}, \monobox{(0, 1)}, and \monobox{(0, 0)}. With this convention, software can expect that \monobox{(1, 0)} will not occur, and hardware can optimize as long as it ensures the result \monobox{(1, 0)} does not appear.
+
+We can imagine sequentially consistent hardware as the figure \ref{hw-seq-cst} shows: each thread can directly access shared memory, and memory processes one read or write operation at a time, naturally ensuring sequential consistency. In fact, there are multiple ways to implement sequentially consistent hardware. It can even include caches and be banked, as long as it ensures that the results behave the same as the aforementioned model.
+
+\centering
+\includegraphics[keepaspectratio,width=0.7\linewidth]{images/hw-seq-cst}
+\captionof{figure}{The memory model of sequentially consistent hardware.}
+\label{hw-seq-cst}
+
+\subsection{C11/C++11 atomics}
+
 By default, all atomic operations, including loads, stores, and various forms of \textsc{RMW},
 are considered sequentially consistent.
 However, this is just one among many possible orderings.
@@ -1136,7 +1196,7 @@ With the syntax out of the way,
 let's look at what these orderings are and how we can use them.
 As it turns out, almost all of the examples we have seen so far do not actually need sequentially consistent operations.
 
-\subsection{Acquire and release}
+\subsubsection{Acquire and release}
 
 We have just examined the acquire and release operations in the context of the lock example from \secref{lock-example}.
 You can think of them as ``one-way'' barriers: an acquire operation permits other reads and writes to move past it,
@@ -1201,7 +1261,7 @@ void threadB()
 }
 \end{cppcode}
 
-\subsection{Relaxed}
+\subsubsection{Relaxed}
 Relaxed atomic operations are useful for variables shared between threads where \emph{no specific order} of operations is needed.
 Although it may seem like a niche requirement, such scenarios are quite common.
 
@@ -1243,7 +1303,7 @@ Continue the example above,
 a \textsc{CAS} loop is performed to claim a job.
 All of the loads can be relaxed as we do not need to enforce any order until we have successfully modified our value.
 
-\subsection{Acquire-Release}
+\subsubsection{Acquire-Release}
 
 \cc|memory_order_acq_rel| is used with atomic \textsc{RMW} operations that need to both load-acquire \emph{and} store-release a value.
 A typical example involves thread-safe reference counting,
@@ -1293,7 +1353,7 @@ The [barriers] in the current standard may be the most
 experts-only construct we have in the language.
 \end{quote}
 
-\subsection{Consume}
+\subsubsection{Consume}
 
 Last but not least, we introduce \cc|memory_order_consume|.
 Imagine a situation where data changes rarely but is frequently read by many threads.
