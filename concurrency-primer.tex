@@ -560,7 +560,7 @@ the state of lock needs to be updated on other processors' L1 cache.}
 \label{fig:spinlock}
 
 \section{Concurrency tool and Synchronization}
-
+\label{concurrency-tool}
 Atomic loads, stores, and \textsc{RMW} operations are the building blocks for every single concurrency tool.
 It is useful to split those tools into two camps:
 \introduce{blocking} and \introduce{lockless}.
@@ -601,13 +601,205 @@ while (x == 0)
 
 When executed by a single thread, these operations complete within a finite time. 
 However, with two threads executing concurrently, 
-if one thread executes `x = 1 - x` and the other thread executes `x = 1 - x` subsequently, 
+if one thread executes \cpp|x = 1 - x| and the other thread executes \cpp|x = 1 - x| subsequently, 
 then the value of x will always be 0, which will lead to livelock. 
 Therefore, even without any locks in concurrent threads, 
 they still cannot guarantee that the overall system can make progress toward achieving the programmer's goals.
 
 Consequently, we should not focus on comparing which communication tools or synchronization mechanisms are better, 
 but rather on exploring how to effectively use these tools in a given scenario to facilitate smooth communication between threads and achieve the programmer's goals.
+
+\section{Lock Free}
+In \secref{concurrency-tool}, we explored different mechanisms based on concurrency tool characteristics, as described in \secref{atomicity} and \secref{rmw}.
+In this section, we need to explore which strategies can help programmers to design a concurrency program 
+that allows concurrent threads to collectively ensure progress in the overall system while also improving scalability, 
+which is the initial goal of designing a concurrency program.
+First of all, we must figure out the scope of our problem.
+Understanding the relationship between the progress of each thread and the progress of the entire system is necessary.
+
+\subsection{Type of Progress}
+When we consider the scenario where many concurrent threads collaborate and each thread is divided into many operations, 
+
+\textbf{Wait-Free} Every operation in every thread will be completed within a limited time. 
+This also implies that each operation contributes to the overall progress of the system.
+
+\textbf{Lock-Free} At any given moment, among all operations in every thread, 
+at least one operation contributes to the overall progress of the system. 
+However, it does not guarantee that starvation will not occur.
+
+\textbf{Obstruction-Free} At any given time, if there is only a single thread operating without interference from other threads, 
+its instructions can be completed within a finite time. However, when threads are working concurrently, 
+it does not guarantee progress.
+
+\includegraphics[keepaspectratio, width=0.4\linewidth]{images/progress-type}
+\captionof{figure}{We can classify progress types into three sets: 
+the set Obstruction Free includes the set Lock Free, 
+and the set Lock Free includes the set Wait Free. 
+Achieving Wait Free is the most optimal approach, 
+allowing each thread to progress without being blocked by others.}
+\label{fig:progress-type}
+
+The main goal is that the whole system, 
+which contains all concurrent threads, 
+is always making forward progress. 
+To achieve this goal, we rely on concurrency tools, 
+including atomic operation and the operations that perform atomically, as described in \secref{rmw}. 
+Additionally, we carefully select synchronization mechanism, as described in \secref{concurrency-tool}, 
+which may involve utilizing shared resources for communication (e.g., spinlock), as shown in \secref{shared-resources}. 
+Furthermore, we design our program with appropriate data structures and algorithms. 
+Therefore, lock-free doesn't mean we cannot use any lock; 
+we just need to ensure that the blocking mechanism will not limit the scalability and that the system can avoid the problems described in \secref{concurrency-tool} (e.g., long time of waiting, deadlock).
+
+Next, we take the single producer and multiple consumers problem as an example to demonstrate how to achieve fully lock-free programming by improving some implementations step by step.\punckern\footnote{%
+The first three solutions, which are \secref{SPMC-Solution1}, \secref{SPMC-Solution2}, and \secref{SPMC-Solution3}, are referenced in the Herb Sutter's
+\href{https://youtu.be/c1gO9aB9nbs?si=7qJs-0qZAVqLHr1P}{talk from CppCon~2014.}}
+This problem is that one producer generates tasks and adds them to a job queue, 
+and the consumers take tasks from the job queue and execute them.
+\subsection{SPMC Solution - Lock-based}
+\label{SPMC-Solution1}
+Firstly, introduce the scenario of lock-based algorithms. 
+At any time, there is only one consumer that can get the lock to access the job queue.
+This is because in this scenario, the lock is mutex lock, also known as a mutual exclusive lock.
+Not until the consumer releases the lock are the other consumers blocked when attempting to access the job queue.
+
+The following text explains the meaning of each state in the \fig{fig:SPMC-Solution1}.
+
+\textbf{state 1} : The producer is adding tasks to the job queue while consumers wait for tasks to become available and is ready to take on any job that appears in the job queue.
+
+\textbf{state 2} \to \textbf{state 3} : After the producer adds a task to the job queue, 
+the producer releases the mutex lock, and then wake the consumers up. 
+Those consumers tried to acquire the lock of the job queue for the job before.
+
+\textbf{state 3} \to \textbf{state 4} : Consumer 1 acquires the mutex lock for the job queue, 
+retrieves a task from it, and then releases the mutex lock.
+
+\textbf{state 5} : Next, other consumers attempt to acquire the mutex lock for the job queue.
+However, after they acquire the lock, they find no tasks in the queue.
+This is because the producer has not added more tasks to the job queue.
+
+\textbf{state 6} : Consequently, the consumers wait on a condition variable. 
+During this time, the consumers are not busy waiting but rather waiting for the producer to wake it up. 
+This mechanism is an advanced form of mutex lock.
+
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/SPMC-Solution1}
+\captionof{figure}{The interaction between the producer and consumer in SPMC Solution 1, 
+including their state transitions.}
+\label{fig:SPMC-Solution1}
+
+The reason why this implementation is not lock-free is: 
+First, if a producer suspends, 
+it causes consumers to have no work available, 
+leading them to block and thus halting progress in the entire system. 
+
+Secondly, concurrently, consumers need to access shared resources, which is the job.
+Then, one consumer acquires the lock of the job queue but suddenly gets suspended before completing without unlocking, 
+causing other consumers to be blocked.
+Meanwhile, the producer still keeps adding jobs, but the system fails to make any progress.
+Therefore, neither the former nor the latter implementation approach is lock-free.
+
+\subsection{SPMC Solution - Lock-based and Lock Free}
+\label{SPMC-Solution2}
+As described in \secref{SPMC-Solution1}, there is a problem when the producer suspends; 
+the whole system cannot make any progress.
+Additionally, consumers contend for the lock of the job queue to access the job; 
+however, after they acquire the lock, they may still need to wait when the queue is empty. 
+To solve this issue, the introduction of lock-based and lock-free algorithm is presented in the following section.
+
+The following text explains the meaning of each state in the \fig{fig:SPMC-Solution2}.
+
+\textbf{state 0} : The producer prepares all the jobs in advance.
+
+\textbf{state 1} : Consumer 1 acquires the lock on the job queue, takes a job, and releases the lock.
+
+\textbf{state 2} : After Consumer 2 acquires the lock, it definitely can find that there are still jobs in the queue.
+
+Through this approach, once a consumer obtains the lock on the job queue, 
+there is guaranteed work available unless all jobs have been taken by other consumers.
+
+Thus, there is no need to wait due to a lack of jobs; 
+the only wait is for acquiring the lock to access the job queue.
+
+\includegraphics[keepaspectratio, width=0.7\linewidth]{images/SPMC-Solution2}
+\captionof{figure}{The interaction between the producer and consumer in Solution 2, 
+including their state transitions.}
+\label{fig:SPMC-Solution2}
+
+This implementation is referred to as both locked-based and lock-free. 
+The algorithm is designed such that the producer adds all jobs to the job queue before consumers begin taking them. 
+This design ensures that if the producer suspends or adds the job slowly, 
+consumers will not be blocked due to the lack of a job. 
+Consumers just thought they have done all the jobs that the producer added.
+Therefore, this implementation qualifies as lock-free.
+
+The reason that implementation of getting a job is locked-based, not lock-free,  
+is the same as the second reason described in \secref{SPMC-Solution1}.
+
+\subsection{SPMC Solution - Fully Lock Free}
+\label{SPMC-Solution3}
+As described in \secref{shared-resources}, 
+we can understand that communications between processors across a chip are through cache lines, 
+which incurs high costs. Additionally, using locks further decreases overall performance and limits scalability, as described in \secref{concurrency-tool}.
+However, when locks are necessary for concurrent threads to communicate, 
+reducing the sharing resource and the granularity of the sharing resource to communicate (e.g., spinlock, mutex lock) is crucial.
+
+Therefore, to achieve fully lock-free programming, we change the data structure to reduce the granularity of locks.
+
+\includegraphics[keepaspectratio, width=1\linewidth]{images/SPMC-Solution3}
+\captionof{figure}{The left side shows that the lock protects the entire job queue to ensure exclusive access to its head operations for multi-thread access. 
+The right side illustrates that each thread has its own slot for accessing jobs, 
+not only achieving exclusivity through data structure but also eliminating the need for shared resources to communicate.}
+\label{fig:SPMC-Solution3}
+
+Providing each consumer with their own unique slot to access jobs addresses the problem at its root, 
+directly avoiding competition. 
+Additionally, consumers don't need the shared resource to communicate.
+
+Following is the interaction between the producer and consumer as shown in \fig{fig:SPMC-Solution3}, 
+including their state transitions, is shown as \fig{fig:SPMC-Solution3-FSM}.
+
+\includegraphics[keepaspectratio, width=0.5\linewidth]{images/SPMC-Solution3-FSM}
+\captionof{figure}{The finite state machine is as follows: 
+When the producer finishes creating jobs, the state transitions from Empty to Task, 
+then the producer waits for consumers to complete their tasks. 
+When a consumer finishes a task, transitioning from Empty to Done. 
+If the total number of completed tasks reaches a certain number, 
+the state transitions from Done to End, 
+indicating completion. Meanwhile, consumers take jobs, 
+transitioning the state from Task to Empty.}
+\label{fig:SPMC-Solution3-FSM}
+
+\subsection{SPMC Solution - Fully Lock Free with CAS}
+\label{SPMC-solution4}
+In addition to reducing granularity, 
+there is another way to avoid that if one consumer acquires the lock on the job queue but suddenly gets suspended, 
+causing other consumers to be blocked as described in \secref{SPMC-Solution2}. 
+We can use \textsc{CAS} with a loop to ensure that the write operation achieves semantic atomicity, as shown in \fig{fig:atomic-type}.
+
+Unlike \secref{SPMC-Solution2}, 
+which uses a shared resource (e.g., advanced form of mutex lock) for blocking synchronization, 
+the first thread holding the lock causes the other threads to wait until the first thread releases the lock. 
+As described in \secref{cas}, \textsc{CAS} allows threads that initially failed to acquire the lock to continue to execute Read and Modify. 
+Therefore, we can conclude that if one thread is blocked, 
+it indicates there is another thread is making progress.
+
+As described in \secref{SPMC-Solution2}, a blocking mechanism uses mutex lock; 
+we can see that only one thread is active when it accesses the job queue. 
+Although \textsc{CAS} will continue to execute Read and Modify, 
+it doesn't result in an increase in overall throughput. 
+This is because the operations will be useless when atomic \textsc{CAS} fails. 
+Therefore, we can understand that lock-free algorithms are not faster than blocking ones. 
+The reason for using lock-free is to ensure that if one thread is blocked, 
+it doesn't cause other threads to be blocked, thereby preventing overall progress from stalling.
+
+\subsection{Conclusion about Lock-Free}
+In conclusion about lockfree, 
+we can see that both blocking and lockless approaches have their place in software development. 
+They serve different purposes with their own design philosophies. 
+When performance is a key consideration, it is crucial to profile your application, 
+take advantage of every concurrency tool or mechanism, and accompany it with appropriate data structures and algorithms. 
+The performance impact varies with numerous factors, such as thread count and CPU architecture specifics. 
+Balancing complexity and performance is essential in concurrency, 
+a domain fraught with challenges.
 
 \section{Sequential consistency on weakly-ordered hardware}
 
