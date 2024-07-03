@@ -4,29 +4,28 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <assert.h>
-
 #include <math.h>
 
 #define PRECISION 100 /* upper bound in BPP sum */
-
 #define CACHE_LINE_SIZE 64
 #define N_THREADS 64
 
 struct tpool_future {
     void *result;
+    void *arg;
     atomic_flag flag;
 };
 
 typedef struct job {
     void *(*func)(void *);
-    void *args;
     struct tpool_future *future;
     struct job *next, *prev;
 } job_t;
 
 typedef struct idle_job {
     _Atomic(job_t *) prev;
-    char padding[CACHE_LINE_SIZE - sizeof(_Atomic(job_t *))];
+    char padding[CACHE_LINE_SIZE -
+                 sizeof(_Atomic(job_t *))]; /* avoid false sharing */
     job_t job;
 } idle_job_t;
 
@@ -38,15 +37,15 @@ typedef struct tpool {
     thrd_t *pool;
     atomic_int state;
     thrd_start_t func;
-    // job queue is a SPMC ring buffer
-    idle_job_t *head;
+    idle_job_t *head; /* job queue is a SPMC ring buffer */
 } tpool_t;
 
-static struct tpool_future *tpool_future_create(void)
+static struct tpool_future *tpool_future_create(void *arg)
 {
     struct tpool_future *future = malloc(sizeof(struct tpool_future));
     if (future) {
         future->result = NULL;
+        future->arg = arg;
         atomic_flag_clear(&future->flag);
         atomic_flag_test_and_set(&future->flag);
     }
@@ -72,28 +71,28 @@ static int worker(void *args)
     tpool_t *thrd_pool = (tpool_t *)args;
 
     while (1) {
+        /* worker is laid off */
         if (atomic_load(&thrd_pool->state) == cancelled)
             return EXIT_SUCCESS;
         if (atomic_load(&thrd_pool->state) == running) {
-            // claim the job
+            /* worker takes the job */
             job_t *job = atomic_load(&thrd_pool->head->prev);
-            while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                                 job->prev)) {
-            }
-            if (job->args == NULL) {
+            /* worker checks if there is only an idle job in the job queue */
+            if (job == &thrd_pool->head->job) {
+                /* worker says it is idle */
                 atomic_store(&thrd_pool->state, idle);
-            } else {
-                void *ret_value = job->func(job->args);
-                job->future->result = ret_value;
-                atomic_flag_clear(&job->future->flag);
-                free(job->args);
-                free(job);
+                thrd_yield();
+                continue;
             }
+            while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                                 job->prev))
+                ;
+            job->future->result = (void *)job->func(job->future->arg);
+            atomic_flag_clear(&job->future->flag);
+            free(job);
         } else {
-            /* To auto run when jobs added, set status to running if job queue is not empty.
-             * As long as the producer is protected */
+            /* worker is idle */
             thrd_yield();
-            continue;
         }
     };
     return EXIT_SUCCESS;
@@ -113,14 +112,13 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
         return false;
     }
 
-    // May use memory pool for jobs
     idle_job_t *idle_job = malloc(sizeof(idle_job_t));
     if (!idle_job) {
         printf("Failed to allocate idle job.\n");
         return false;
     }
-    // idle_job will always be the first job
-    idle_job->job.args = NULL;
+
+    /* idle_job will always be the first job */
     idle_job->job.next = &idle_job->job;
     idle_job->job.prev = &idle_job->job;
     idle_job->prev = &idle_job->job;
@@ -129,10 +127,9 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
     thrd_pool->state = idle;
     thrd_pool->size = size;
 
-    for (size_t i = 0; i < size; i++) {
+    /* employer hires many workers */
+    for (size_t i = 0; i < size; i++)
         thrd_create(thrd_pool->pool + i, worker, thrd_pool);
-        //TODO: error handling
-    }
 
     return true;
 }
@@ -141,9 +138,10 @@ static void tpool_destroy(tpool_t *thrd_pool)
 {
     if (atomic_exchange(&thrd_pool->state, cancelled))
         printf("Thread pool cancelled with jobs still running.\n");
-    for (int i = 0; i < thrd_pool->size; i++) {
+
+    for (int i = 0; i < thrd_pool->size; i++)
         thrd_join(thrd_pool->pool[i], NULL);
-    }
+
     while (thrd_pool->head->prev != &thrd_pool->head->job) {
         job_t *job = thrd_pool->head->prev->prev;
         free(thrd_pool->head->prev);
@@ -164,28 +162,25 @@ static void *bbp(void *arg)
     double *product = malloc(sizeof(double));
     if (!product)
         return NULL;
-        
+
     *product = 1 / pow(16, k) * sum;
     return (void *)product;
 }
 
 struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
-                             void *args)
+                             void *arg)
 {
-    // May use memory pool for jobs
     job_t *job = malloc(sizeof(job_t));
     if (!job)
         return NULL;
 
-    struct tpool_future *future = tpool_future_create();
-    if (!future){
+    struct tpool_future *future = tpool_future_create(arg);
+    if (!future) {
         free(job);
         return NULL;
     }
 
-    // unprotected producer
-    job->args = args;
-    job->func = bbp;
+    job->func = func;
     job->future = future;
     job->next = thrd_pool->head->job.next;
     job->prev = &thrd_pool->head->job;
@@ -193,7 +188,7 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
     thrd_pool->head->job.next = job;
     if (thrd_pool->head->prev == &thrd_pool->head->job) {
         thrd_pool->head->prev = job;
-        // trap worker at idle job
+        /* the previous job of the idle job is itself */
         thrd_pool->head->job.prev = &thrd_pool->head->job;
     }
     return future;
@@ -201,14 +196,14 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
 
 static inline void wait_until(tpool_t *thrd_pool, int state)
 {
-    while (atomic_load(&thrd_pool->state) != state) {
+    while (atomic_load(&thrd_pool->state) != state)
         thrd_yield();
-    }
 }
 
 int main()
 {
-    struct tpool_future *futures[PRECISION + 1];
+    int bbp_args[PRECISION];
+    struct tpool_future *futures[PRECISION];
     double bbp_sum = 0;
 
     tpool_t thrd_pool = { .initialezed = ATOMIC_FLAG_INIT };
@@ -216,26 +211,30 @@ int main()
         printf("failed to init.\n");
         return 0;
     }
-    for (int i = 0; i <= PRECISION; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        futures[i] = add_job(&thrd_pool, bbp, id);
-    }
-    // Due to simplified job queue (not protecting producer), starting the pool manually
+    /* employer ask workers to work */
     atomic_store(&thrd_pool.state, running);
+
+    /* employer wait ... until workers are idle */
     wait_until(&thrd_pool, idle);
-    for (int i = 0; i <= PRECISION; i++) {
-        int *id = malloc(sizeof(int));
-        *id = i;
-        add_job(&thrd_pool, bbp, id);
+
+    /* employer add more job to the job queue */
+    for (int i = 0; i < PRECISION; i++) {
+        bbp_args[i] = i;
+        futures[i] = add_job(&thrd_pool, bbp, &bbp_args[i]);
     }
-    for (int i = 0; i <= PRECISION; i++) {
+
+    /* employer ask workers to work */
+    atomic_store(&thrd_pool.state, running);
+
+    /* employer wait for the result of job */
+    for (int i = 0; i < PRECISION; i++) {
         tpool_future_wait(futures[i]);
         bbp_sum += *(double *)(futures[i]->result);
         tpool_future_destroy(futures[i]);
     }
-    atomic_store(&thrd_pool.state, running);
+
+    /* employer destroys the job queue and lays workers off */
     tpool_destroy(&thrd_pool);
-    printf("PI calculated with %d terms: %.15f\n", PRECISION + 1, bbp_sum);
+    printf("PI calculated with %d terms: %.15f\n", PRECISION, bbp_sum);
     return 0;
 }

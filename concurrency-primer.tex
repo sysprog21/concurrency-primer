@@ -396,12 +396,12 @@ After achieving this goal, we can further explore how concurrent threads can coo
 In \secref{atomicity}, there is a need for atomicity to ensure that a group of operations is not only sequentially executed but also completes without being interrupted by operation from other threads.
 This establishes correct order of operations from different threads.
 
-\includegraphics[keepaspectratio, width=0.6\linewidth]{images/atomic_rmw}
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/atomic-rmw}
 \captionof{figure}{Exchange, Test and Set, Fetch and…, Compare and Swap can all be transformed into atomic RMW operations, ensuring that operations like t1 \to t2 \to t3 will become an atomic step.}
-\label{fig:atomic_rmw}
+\label{fig:atomic-rmw}
 
 Atomic loads and stores are all well and good when we do not need to consider the previous state of atomic variables, but sometimes we need to read a value, modify it, and write it back as a single atomic step.
-As shown in \fig{fig:atomic_rmw}, the modification is based on the previous state that is visible for reading, and the result is then written back.
+As shown in \fig{fig:atomic-rmw}, the modification is based on the previous state that is visible for reading, and the result is then written back.
 A complete \introduce{read-modify-write} operation is performed atomically to ensure visibility to subsequent operations.
   
 Furthermore, for communication between concurrent threads, a shared resource is required, as shown in \fig{fig:atomicity} 
@@ -411,16 +411,16 @@ Thus, the need for a channel for communication arises with the appearance of the
 
 As discussed earlier, the process of accessing shared resources responsible for communication must also ensure both order and non-interference. 
 To prevent the recursive protection of shared resources, 
-atomic operations can be introduced for the shared resources responsible for communication, as shown in \fig{fig:atomic_types}.
+atomic operations can be introduced for the shared resources responsible for communication, as shown in \fig{fig:atomic-types}.
 
 There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations to make theses operation become a single atomic step.
 In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
 
-\includegraphics[keepaspectratio, width=1\linewidth]{images/atomic_types}
+\includegraphics[keepaspectratio, width=1\linewidth]{images/atomic-types}
 \captionof{figure}{Test and Set (Left) and Compare and Swap (Right) leverage their functionality of checking and their atomicity to make other RMW operations perform atomically.
 The red color represents atomic RMW operations, while the blue color represents RMW operations that behave atomically.}
-\label{fig:atomic_types}
+\label{fig:atomic-types}
 
 \subsection{Exchange}
 \label{exchange}
@@ -441,7 +441,7 @@ The initial value of an \monobox{atomic\_flag} is indeterminate until initialize
 \introduce{Test-and-set} operations are not limited to just \textsc{RMW} functions; 
 they can also be utilized for constructing simple spinlock. 
 In this scenario, the flag acts as a shared resource for communication between threads. 
-Thus, spinlock implemented with \introduce{Test-and-set} operations ensures that entire \textsc{RMW} operations on shared resources are performed atomically, as shown in \fig{fig:atomic_types}.
+Thus, spinlock implemented with \introduce{Test-and-set} operations ensures that entire \textsc{RMW} operations on shared resources are performed atomically, as shown in \fig{fig:atomic-types}.
 \label{spinlock}
 \begin{ccode}
 atomic_flag af = ATOMIC_FLAG_INIT;
@@ -464,7 +464,7 @@ Transform \textsc{RMW} to directly modify the shared variable (such as addition,
 or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous value, 
 all as part of a single atomic operation. 
 Compare with \introduce{Exchange} \secref{exchange}, when programmers only need to make simple modification to the shared variable, 
-they can use \introduce{Fetch and…}.
+they can use \introduce{Fetch-and…}.
 
 \subsection{Compare and swap}
 \label{cas}
@@ -501,50 +501,57 @@ If they don't match, it implies that interference from another thread has occurr
 Subsequently, update the expected value with the current shared value and retry modify in a loop. 
 This iterative process allows \textsc{CAS} to serve as a communication mechanism between threads, 
 ensuring that entire \textsc{RMW} operations on shared resources are performed atomically.
-As shown in \fig{fig:atomic_types}, compared with \introduce{Test-and-set} \secref{Testandset}, 
+As shown in \fig{fig:atomic-types}, compared with \introduce{Test-and-set} \secref{Testandset}, 
 a thread that employs \textsc{CAS} can directly use the shared resource to check.
 It uses atomic \textsc{CAS} to ensure that Modify is atomic, 
 coupled with a while loop to ensure that the entire \textsc{RMW} can behave atomically.
 
+~\\
+However, atomic \textsc{RMW} operations here are merely a programming tool for programmers to achieve program logic correctness. 
+Its actual execution as atomic operations depends on the how compiler translate it into actual atomic instructions based on differenct hardware instruction set. 
+\introduce{Exchange}, \introduce{Fetch-and-Add}, \introduce{Test-and-set} and \textsc{CAS} in instruction level are different style of atomic \textsc{RMW} instructions. 
+ISA could only provide some of them, 
+leaving the rest to compilers to synthesize atomic \textsc{RMW} operations. 
+For example, In IA32/64 and IBM System/360/z architectures, 
+\introduce{Test-and-set} functionality is directly supported by hardware instructions. 
+x86 has XCHG, XADD for \introduce{Exchange} and \introduce{Fetch-and-Add} but has \introduce{Test-and-set} implemented with XCHG. 
+Arm, in another style, provides LL/SC (Load Linked/Store Conditional) flavor instructions for all the operations, 
+with \textsc{CAS} added in Armv8/v9-A.
+
 \subsection{example}
 \label{rmw_example}
-Following example code is a simplify implementation of thread pool to demonstrate the use of \clang{}11 atomic library.
+The following example code is a simplified implementation of a thread pool, which demonstrates the use of \clang{}11 atomic library.
 
 \inputminted{c}{./examples/rmw_example.c}
 
-%Compile the code with \monobox{gcc rmw\_example.c -o rmw\_example -Wall -Wextra -std=c11 -pthread} and execute the program.
-%A thread pool has three states: idle, cancelled and running. 
-%It is initialized with \monobox{N\_THREADS} (default 8) of threads. 
-%\monobox{N\_JOBS} (default 16) of jobs are added, and the pool is then set to running. 
-%A job is simply echoing its job ID.
-%\monobox{sleep(1)} is used to ensure that the second batch of jobs is added after the first batch is finished; otherwise, jobs may not be consumed as expected.
-%Thread pool is then destroyed right after starting running.
 Stdout of the program is:
 \begin{ccode}
-PI calculated with 101 terms: 3.141592653589793
+PI calculated with 100 terms: 3.141592653589793
 \end{ccode}
 
 \textbf{Exchange}
-In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads current state and replaces it with "cancelled". A warning message is printed if the pool is destroyed when still running. 
-If the exchange is not performed atomically, we may initially get the state as "running". Subsequently, a thread could set the state to "cancelled" after finishing the last one, resulting in a false warning.
+In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads the current state and replaces it with ``cancelled''. 
+A warning message is printed if the pool is destroyed while workers are still ``running''. 
+If the exchange is not performed atomically, we may initially get the state as ``running''. Subsequently, a thread could set the state to ``cancelled'' after finishing the last one, resulting in a false warning.
 
 \textbf{Test and set}
-In the example, the scenario is as follows: 
-First, the main thread initially acquire a lock \monobox{future->flag} and then set it true, 
-which is akin to creating a job and then transfer its ownership to the worker. 
-Subsequently, the main thread will be blocked until the worker clear the flag. 
-This inidcate the main thread will wail until the worker completes the job and return the ownership back to the main thread, which ensure correct cooperation.
+In this example, the scenario is as follows: 
+First, the main thread initially acquires a lock \monobox{future->flag} and then sets it true, 
+which is akin to creating a job and then transferring its ownership to the worker. 
+Subsequently, the main thread will be blocked until the worker clears the flag. 
+This indicates that the main thread will wail until the worker completes the job and returns ownership back to the main thread, which ensures correct cooperation.
 
 \textbf{Fetch and…}
-In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to idle. 
+In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to ``idle''. 
 Yet, in this case, it is not necessary, as the pool needs to be reinitialized for further use regardless.
 Its return value could be further utilized, for instance, to report the previous state and perform additional actions.
 
 \textbf{Compare and swap}
 Once threads are created in the thread pool as workers, they will continuously search for jobs to do.
-Jobs are taken from the tail of job queue.
-To claim a job without it being taken by another worker halfway through, we need to atomically change the pointer to the last job. Otherwise the last job is under races.
-The while loop in function \monobox{worker},
+Jobs are taken from the tail of the job queue.
+To take a job without being taken by another worker halfway through, we need to atomically change the pointer to the last job. 
+Otherwise, the last job is under race.
+The while loop in the function \monobox{worker},
 \begin{ccode}
 while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
                                        job->prev)) {
@@ -574,10 +581,6 @@ But should every object, including non-atomic ones, participate in a single glob
 \introduce{Sequential consistency} solves the ordering problem in in \secref{seqcst}, but it may force too much ordering, as some normal operations may not require it.
 Without specifying, atomic operations in \clang{}11 atomic library use \monobox{memory\_order\_seq\_cst} as default memory order. Operations post-fix with \monobox{\_explicit} accept an additional argument to specify which memory order to use.
 How to leverage memory orders to optimize performance will be covered later in \secref{lock-example}.
-
-You may have noticed that there is padding after \monobox{\_Atomic(job\_t *) prev} in \monobox{struct idle\_job} in the example.
-It is used for preventing \introduce{false sharing} in a cache line.
-Further discussion on cache effects and false sharing is provided in \secref{false-sharing}.
 
 \section{Atomic operations as building blocks}
 
