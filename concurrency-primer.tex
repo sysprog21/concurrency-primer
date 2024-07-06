@@ -1137,19 +1137,50 @@ y = 1;             r2 = x;
 \end{ccode}
 
 If this program satisfies sequential consistency, then for Thread 1, \monobox{x = 1} must occur before \monobox{y = 1}, and for Thread 2, \monobox{r1 = y} must occur before \monobox{r2 = x}.
-For the entire program, the following six execution orders are possible:
+For the entire program, the following  six execution orders are possible:
 
-\begin{verbatim}
-|  x = 1            |  x = 1            |  x = 1            |
-|  y = 1            |        r1 = y(0)  |        r1 = y(0)  |
-|        r1 = y(1)  |  y = 1            |        r2 = x(1)  |
-|        r2 = x(1)  |        r2 = y(1)  |  y = 1            |
-+-------------------+-------------------+-------------------+
-|        r1 = y(0)  |        r1 = y(0)  |        r1 = y(0)  |
-|  x = 1            |  x = 1            |        r2 = x(0)  |
-|  y = 1            |        r2 = x(1)  |  x = 1            |
-|        r2 = x(1)  |  y = 1            |  y = 1            |
-\end{verbatim}
+\begin{center}
+\noindent
+\begin{tabular}{|c|c|c|} \hline
+\begin{lstlisting}
+x = 1
+y = 1
+        r1 = y(1)
+        r2 = x(1)
+\end{lstlisting}&
+\begin{lstlisting}
+x = 1
+        r1 = y(0)
+y = 1
+        r2 = y(1)
+\end{lstlisting}&
+\begin{lstlisting}
+x = 1
+        r1 = y(0)
+        r2 = x(1)
+y = 1
+\end{lstlisting}\\ \hline
+\begin{lstlisting}
+        r1 = y(0)
+x = 1
+y = 1
+        r2 = x(1)
+\end{lstlisting}&
+\begin{lstlisting}
+        r1 = y(0)
+x = 1
+        r2 = x(1)
+y = 1
+\end{lstlisting}&
+\begin{lstlisting}
+        r1 = y(0)
+        r2 = x(0)
+x = 1
+y = 1
+\end{lstlisting}\\ \hline
+\end{tabular}
+\captionof{table}{6 possible execution orders of the message passing litmus test.}
+\end{center}
 
 Observing these orders, we see that none result in \monobox{r1 = 1} and \monobox{r2 = 0}.
 Thus, sequential consistency only allows the outcomes \monobox{(r1, r2)} to be \monobox{(1, 1)}, \monobox{(0, 1)}, and \monobox{(0, 0)}.
