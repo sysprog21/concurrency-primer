@@ -1255,7 +1255,7 @@ x = 1;         y = 1;         r1 = x;        r3 = y;
 
 Once Thread 3 reads \monobox{r1 = 1}, \monobox{r2 = 0}, it indicates that the write \monobox{x = 1} reached shared memory before \monobox{y = 1}.
 If at this point Thread 4 reads \monobox{r3 = 1}, it means both writes \monobox{y = 1} and \monobox{x = 1} are visible to Thread 4, so \monobox{r4} can only be \monobox{1}.
-We can say "Thread 1's write to \monobox{x}" happens before "Thread 2's write to \monobox{y}".
+We can say ``Thread 1's write to \monobox{x}'' happens before ``Thread 2's write to \monobox{y}''.
 
 \subsubsection{Relaxed memory order (RMO)}
 
