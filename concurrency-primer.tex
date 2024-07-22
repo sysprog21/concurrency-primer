@@ -221,7 +221,7 @@ Most \textsc{CPU} architectures execute segments of multiple instructions concur
 A stall, or suspension of forward progress, occurs when an instruction awaits the outcome of a preceding one in the pipeline until the necessary result becomes available.} or to optimize data locality.\punckern\footnote{%
 \textsc{RAM} accesses data not byte by byte, but in larger units known as \introduce{cache lines}.
 Grouping frequently used variables on the same cache line means they are processed together,
-significantly boosting performance. However, as discussed in \secref{false-sharing},
+significantly boosting performance. However, as discussed in \secref{shared-resources},
 this strategy can lead to complications when cache lines are shared across cores.}
 
 Variables may be allocated to the same memory location if their usage does not overlap.
@@ -506,7 +506,6 @@ a thread that employs \textsc{CAS} can directly use the shared resource to check
 It uses atomic \textsc{CAS} to ensure that Modify is atomic, 
 coupled with a while loop to ensure that the entire \textsc{RMW} can behave atomically.
 
-~\\
 However, atomic \textsc{RMW} operations here are merely a programming tool for programmers to achieve program logic correctness. 
 Its actual execution as atomic operations depends on the how compiler translate it into actual atomic instructions based on differenct hardware instruction set. 
 \introduce{Exchange}, \introduce{Fetch-and-Add}, \introduce{Test-and-set} and \textsc{CAS} in instruction level are different style of atomic \textsc{RMW} instructions. 
@@ -582,14 +581,78 @@ But should every object, including non-atomic ones, participate in a single glob
 Without specifying, atomic operations in \clang{}11 atomic library use \monobox{memory\_order\_seq\_cst} as default memory order. Operations post-fix with \monobox{\_explicit} accept an additional argument to specify which memory order to use.
 How to leverage memory orders to optimize performance will be covered later in \secref{lock-example}.
 
-\section{Atomic operations as building blocks}
+\section{Shared Resources}
+\label{shared-resources}
+From \secref{rmw}, we have understood that there are two types of shared resources that need to be considered. 
+The first type is shared resources that concurrent threads will access in order to collaborate to achieve a goal. 
+The second type is shared resources that serve as a communication channel for concurrent threads, 
+ensuring correct access to shared resources. 
+However, all of these considerations stem from a programming perspective, 
+where we only distinguish between shared resources and private resources. 
 
+Given all the complexities to consider, modern hardware adds another layer to the puzzle, 
+as depicted in \fig{fig:dunnington}. 
+Remember, memory moves between the main \textsc{RAM} and the \textsc{CPU} in segments known as cache lines. 
+These cache lines also represent the smallest unit of data transferred between cores and caches. 
+When one core writes a value and another reads it, 
+the entire cache line containing that value must be transferred from the first core's cache(s) to the second core's cache(s), 
+ensuring a coherent ``view'' of memory across cores. This dynamic can significantly affect performance.
+
+This slowdown is even more insidious when it occurs between unrelated variables that happen to be placed on the same shared resource, 
+which is the cache line, as shown in \fig{fig:false-sharing}. 
+When designing concurrent data structures or algorithms, 
+this \introduce{false sharing} must be taken into account. 
+One way to avoid it is to pad atomic variables with a cache line of private data, 
+but this is obviously a large space-time trade-off.
+
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/false-sharing}
+\captionof{figure}{Processor 1 and Processor 2 operate independently on variables A and B. 
+Simultaneously, they read the cache line containing these two variables. 
+In the next time step, each processor modifies A and B in their private L1 cache separately. 
+Subsequently, both processors write their modified cache line to the shared L2 cache. 
+At this moment, the expansion of the scope of shared resources to encompass cache lines highlights the importance of considering cache coherence issues.}
+\label{fig:false-sharing}
+
+Not only shared resources, 
+but we also need to consider shared resources that serve as a communication channel, e.g. spinlock (see \secref{spinlock}). 
+Processors using locks as a communication channel also need to transfer the cache line.
+When a processor broadcasts the release of a lock, 
+multiple processors on different chips attempt to acquire the lock simultaneously. 
+To ensure a consistent state of the lock across all private L1 cache lines, 
+which is a part of cache coherence, 
+the cache line containing the lock will be continually transferred among the caches of those cores.
+Unless the critical sections are considerably lengthy, 
+the time spent managing this cache line movement could exceed the time spent within the critical sections themselves,\punckern\footnote{%
+This situation underlines how some systems may experience a cache miss that is substantially more costly than an atomic \textsc{RMW} operation,
+as discussed in Paul~E.\ McKenney's
+\href{https://www.youtube.com/watch?v=74QjNwYAJ7M}{talk from CppCon~2017}
+for a deeper exploration.}
+despite the algorithm's non-blocking nature.
+
+With these high communication costs, there may be only one processor that succeeds in acquiring it again in the case of mutex lock or spinlock, as shown in \fig{fig:spinlock}. 
+Then the other processors that have not successfully acquired the lock will continue to wait, 
+resulting in little practical benefit (only one processor gains the lock) and significant communication overhead. 
+This disparity severely limits the scalability of the spin lock.
+
+\includegraphics[keepaspectratio, width=0.9\linewidth]{images/spinlock}
+\captionof{figure}{Three processors use lock as a communication channel to insure the access operations to the shared L2 cache will be correct. 
+Processors 2 and 3 are trying to acquire a lock that is held by processor 1. 
+Therefore, when processor 1 unlocks, 
+the state of lock needs to be updated on other processors' private L1 cache.}
+\label{fig:spinlock}
+
+\section{Concurrency tools and synchronization mechanisms}
+\label{concurrency-tool}
 Atomic loads, stores, and \textsc{RMW} operations are the building blocks for every single concurrency tool.
 It is useful to split those tools into two camps:
 \introduce{blocking} and \introduce{lockless}.
 
-Blocking synchronization methods are generally easier to understand,
-but they can cause threads to pause for unpredictable durations.
+As mentioned in \secref{rmw}, multiple threads can use these blocking tools to communicate with others. 
+Furthermore, these blocking tools can even assist in synchronization between threads. 
+The blocking mechanism is quite simple, 
+because all threads need to do is block others in order to make their own progress. 
+However, this simplicity can also cause threads to pause for unpredictable durations and then influence the progress of the overall system.
+
 Take a mutex as an example:
 it requires threads to access shared data sequentially.
 If a thread locks the mutex and another attempts to lock it too,
@@ -598,30 +661,227 @@ until the first one unlocks it, regardless of the wait time.
 Additionally, blocking mechanisms are prone to \introduce{deadlock} and \introduce{livelock},
 issues that lead to the system becoming immobilized as threads perpetually wait on each other.
 
-In contrast, lockless synchronization methods ensure that the program is always making forward progress.
-These are \introduce{non-blocking} since no thread can cause another to wait indefinitely.
-Consider a program that streams audio,
-or an embedded system where a sensor triggers an interrupt service routine (\textsc{ISR}) when new data arrives.
-We want lock-free algorithms and data structures in these situations,
-since blocking could break them.
-(In the first case, the user's audio will begin to stutter if sound data is not provided at the bitrate it is consumed.
-In the second, subsequent sensor inputs could be missed if the \textsc{isr} does not complete as quickly as possible.)
+If the first thread acquires a mutex first, 
+then the second thread locks another mutex and subsequently attempts to lock the mutex held by the first thread. 
+At the same time, the first thread also tries to lock the mutex held by the second thread.
+Then the deadlock occurs.
+Therefore, we can see that deadlock occurs when different threads acquire locks in incompatible orders, 
+leading to system immobilization as threads perpetually wait on each other. 
 
-% FIXME: remove this hack
-% LaTeX provides 9 symbols when using symbol option, therefore it produces an error if we count higher.
-\setcounter{footnote}{0}
-Lockless algorithms are not inherently superior or quicker than blocking ones;
-they serve different purposes with their own design philosophies.
-Additionally, the mere use of atomic operations does not render algorithms lock-free.
-For example, basic spinlock is still considered a blocking algorithm even though it eschews \textsc{OS}-specific syscalls for making the blocked thread sleep.
-Putting a blocked thread to sleep is often an optimization,
-allowing the operating system's scheduler to allocate \textsc{CPU} resources to active threads until the blocked one is revived.
-Some concurrency libraries even introduce hybrid locks that combine brief spinning with sleeping to balance \textsc{CPU} usage and context-switching overheads.
+Additionally, in \secref{shared-resources}, 
+we can see another problem with the lock: its scalability is limited.
 
-Both blocking and lockless approaches have their place in software development.
-When performance is a key consideration, it is crucial to profile your application.
-The performance impact varies with numerous factors, such as thread count and \textsc{CPU} architecture specifics.
-Balancing complexity and performance is essential in concurrency, a domain fraught with challenges.
+After understanding the issue that blocking mechanisms are prone to, 
+we try to achieve synchronization between threads without lock. 
+Consider the program below: if there is only a single thread, execute these operations as follows:
+
+\begin{cppcode}
+while (x == 0)
+    x = 1 - x;
+\end{cppcode}
+
+When executed by a single thread, these operations complete within a finite time. 
+However, with two threads executing concurrently, 
+if one thread executes \cpp|x = 1 - x| and the other thread executes \cpp|x = 1 - x| subsequently, 
+then the value of x will always be 0, which will lead to a livelock. 
+Therefore, even without any locks in concurrent threads, 
+we still cannot guarantee that the overall system can make progress toward achieving the programmer's goals.
+
+Consequently, we should not focus on comparing which communication tools or synchronization mechanisms are better, 
+but rather on exploring how to effectively use these tools in a given scenario to facilitate smooth communication between threads and achieve the programmer's goals.
+
+\section{Lock free}
+In \secref{concurrency-tool}, we explored different mechanisms based on the characteristics of concurrency tools, 
+as described in \secref{atomicity} and \secref{rmw}.
+In this section, we need to explore which strategies can help programmers to design a concurrency program 
+that allows concurrent threads to collectively ensure progress in the overall system while also improving scalability, 
+which is the initial goal of designing a concurrency program.
+First of all, we must figure out the scope of our problem.
+Understanding the relationship between the progress of each thread and the progress of the entire system is necessary.
+
+\subsection{Type of progress}
+When we consider the scenario where many concurrent threads collaborate and each thread is divided into many operations, 
+
+\textbf{Wait-Free} Every operation in every thread will be completed within a limited time. 
+This also implies that each operation contributes to the overall progress of the system.
+
+\textbf{Lock-Free} At any given moment, among all operations in every thread, 
+at least one operation contributes to the overall progress of the system. 
+However, it does not guarantee that starvation will not occur.
+
+\textbf{Obstruction-Free} At any given time, if there is only a single thread operating without interference from other threads, 
+its instructions can be completed within a finite time. However, when threads are working concurrently, 
+it does not guarantee progress.
+
+Therefore, we can understand their three relationships as follows:
+obstruction-free includes lock-free and lock-free includes wait-free.
+Achieving wait-free is the most optimal approach, 
+allowing each thread to make progress without being blocked by other threads.
+
+\includegraphics[keepaspectratio, width=1 \linewidth]{images/progress-type}
+\captionof{figure}{In a wait-free system, each thread is guaranteed to make progress at every moment because no thread can block others. 
+This ensures that the overall system can always make progress. 
+In a lock-free system, at Time 1, Thread 1 may cause other threads to wait while it performs its operation. 
+However, even if Thread 1 suspends at Time 2, it does not subsequently block other threads. 
+This allows Thread 2 to make progress at Time 3, ensuring that the overall system continues to make progress even if one thread is suspended. 
+In an obstruction-free system, when Thread 1 is suspended at Time 2, 
+it causes other threads to be blocked as a result. This means that by Time 3, 
+Thread 2 and Thread 3 are still waiting, preventing the system from making progress thereafter. 
+Therefore, obstruction-free systems may halt progress if one thread is suspended, 
+leading to the potential blocking of other threads and even stalling the system.}
+\label{fig:progress-type}
+
+The main goal is that the whole system, 
+which contains all concurrent threads, 
+is always making forward progress. 
+To achieve this goal, we rely on concurrency tools, 
+including atomic operation and the operations that perform atomically, as described in \secref{rmw}. 
+Additionally, we carefully select synchronization mechanism, as described in \secref{concurrency-tool}, 
+which may involve utilizing shared resources for communication (e.g., spinlock), as described in \secref{shared-resources}. 
+Furthermore, we design our program with appropriate data structures and algorithms. 
+Therefore, lock-free doesn't mean we cannot use any lock; 
+we just need to ensure that the blocking mechanism will not limit the scalability and that the system can avoid the problems described in \secref{concurrency-tool} (e.g., long time of waiting, deadlock).
+
+Next, we take the single producer and multiple consumers problem as an example to demonstrate how to achieve fully lock-free programming by improving some implementations step by step.\punckern\footnote{%
+The first three solutions, which are \secref{spmc-solution1}, \secref{spmc-solution2}, and \secref{spmc-solution3}, are referenced in the Herb Sutter's
+\href{https://youtu.be/c1gO9aB9nbs?si=7qJs-0qZAVqLHr1P}{talk from CppCon~2014.}}
+This problem is that one producer generates tasks and adds them to a job queue, 
+and multiple consumers take tasks from the job queue and execute them.
+\subsection{SPMC solution - lock-based}
+\label{spmc-solution1}
+Firstly, introduce the scenario of lock-based algorithms. 
+At any time, there is only one consumer that can get the lock to access the job queue.
+This is because in this scenario, the lock is mutex lock, also known as a mutual exclusive lock.
+Not until the consumer releases the lock are the other consumers blocked when attempting to access the job queue.
+
+The following text explains the meaning of each state in the \fig{fig:spmc-solution1}.
+
+\textbf{state 1} : The producer is adding tasks to the job queue while multiple consumers wait for tasks to become available and is ready to take on any job that appears in the job queue.
+
+\textbf{state 2} \to \textbf{state 3} : After the producer adds a task to the job queue, 
+the producer releases the mutex lock, and then wake the consumers up. 
+Those consumers tried to acquire the lock of the job queue for the job before.
+
+\textbf{state 3} \to \textbf{state 4} : Consumer 1 acquires the mutex lock for the job queue, 
+retrieves a task from it, and then releases the mutex lock.
+
+\textbf{state 5} : Next, other consumers attempt to acquire the mutex lock for the job queue.
+However, after they acquire the lock, they find no tasks in the queue.
+This is because the producer has not added more tasks to the job queue.
+
+\textbf{state 6} : Consequently, the consumers wait on a condition variable. 
+During this time, the consumers are not busy waiting but rather waiting for the producer to wake it up. 
+This is because the mechanism is an advanced form of mutex lock.
+
+\includegraphics[keepaspectratio, width=0.6\linewidth]{images/spmc-solution1}
+\captionof{figure}{The interaction between the producer and consumer in SPMC Solution 1, 
+including their state transitions.}
+\label{fig:spmc-solution1}
+
+The reason why this implementation is not lock-free is: 
+First, if a producer suspends, 
+it causes consumers to have no job available, 
+leading them to block and thus halting progress in the entire system, 
+which is obstruction-free, as shown in the \fig{fig:progress-type}.
+Secondly, consumers concurrently need to access shared resources, which is the job.
+Then, one consumer acquires the lock of the job queue but suddenly gets suspended before completing without unlocking, 
+causing other consumers to be blocked.
+Meanwhile, the producer still keeps adding jobs, but the system fails to make any progress,
+which is obstruction-free, as shown in the \fig{fig:progress-type}.
+Therefore, neither the former nor the latter implementation approach is lock-free.
+
+\subsection{SPMC solution - lock-based and lock-free}
+\label{spmc-solution2}
+As described in \secref{spmc-solution1}, there is a problem when the producer suspends; 
+the whole system cannot make any progress.
+Additionally, consumers contend for the lock of the job queue to access the job; 
+however, after they acquire the lock, they may still need to wait when the queue is empty. 
+To solve this issue, the introduction of lock-based and lock-free algorithm is presented in this section.
+
+The following text explains the meaning of each state in the \fig{fig:spmc-solution2}.
+
+\textbf{state 0} : The producer prepares all the jobs in advance.
+
+\textbf{state 1} : Consumer 1 acquires the lock on the job queue, takes a job, and releases the lock.
+
+\textbf{state 2} : After consumer 2 acquires the lock, it definitely can find that there are still jobs in the queue.
+
+Through this approach, once a consumer obtains the lock on the job queue, 
+there is guaranteed job available unless all jobs have been taken by other consumers.
+Thus, there is no need to wait due to a lack of jobs; 
+the only wait is for acquiring the lock to access the job queue.
+
+\includegraphics[keepaspectratio, width=0.7\linewidth]{images/spmc-solution2}
+\captionof{figure}{The interaction between the producer and consumer in Solution 2, 
+including their state transitions.}
+\label{fig:spmc-solution2}
+
+This implementation is referred to as both locked-based and lock-free. 
+The algorithm is designed such that the producer adds all jobs to the job queue before multiple consumers begin taking them. 
+This design ensures that if the producer suspends or adds the job slowly, 
+consumers will not be blocked due to the lack of a job. 
+Consumers just thought they have done all the jobs that the producer added.
+Therefore, this implementation qualifies as lock-free, as shown in \fig{fig:progress-type}.
+The reason that implementation of getting a job is locked-based, not lock-free,  
+is the same as the second reason described in \secref{spmc-solution1}.
+
+\subsection{SPMC solution - fully lock-free}
+\label{spmc-solution3}
+As described in \secref{shared-resources}, 
+we can understand that communications between processors across a chip are through cache lines, 
+which incurs high costs. Additionally, using locks further decreases overall performance and limits scalability.
+However, when locks are necessary for concurrent threads to communicate, 
+reducing the sharing resource and the granularity of the sharing resource to communicate (e.g., spinlock, mutex lock) is crucial.
+Therefore, to achieve fully lock-free programming, we change the data structure to reduce the granularity of locks.
+
+\includegraphics[keepaspectratio, width=1\linewidth]{images/spmc-solution3}
+\captionof{figure}{The left side shows that the lock protects the entire job queue to ensure exclusive access to its head for multiple threads. 
+The right side illustrates that each thread has its own slot for accessing jobs, 
+not only achieving exclusivity through data structure but also eliminating the need for shared resources for communication.}
+\label{fig:spmc-solution3}
+
+Providing each consumer with their own unique slot to access jobs addresses the problem at its root, 
+directly avoiding competition. 
+By doing so, consumers no longer rely on a shared resource for communication.
+Consequently, other consumers will not be blocked by a suspended consumer holding a lock.
+This approach ensures that the system maintains its progress, 
+as each consumer operates independently within their own slot, 
+which is lock-free, as shown in \fig{fig:progress-type}.
+
+\subsection{SPMC solution - fully lock-free with CAS}
+\label{SPMC-solution4}
+In addition to reducing granularity, 
+there is another way to avoid that if one consumer acquires the lock on the job queue but suddenly gets suspended, 
+causing other consumers to be blocked as described in \secref{spmc-solution2}. 
+As described in \secref{cas}, we can use \textsc{CAS} with a loop to ensure that the write operation achieves semantic atomicity.
+
+Unlike \secref{spmc-solution2}, 
+which uses a shared resource (e.g., advanced form of mutex lock) for blocking synchronization, 
+the first thread holding the lock causes the other threads to wait until the first thread releases the lock. 
+As described in \secref{cas}, \textsc{CAS} allows threads that initially failed to acquire the lock to continue to execute Read and Modify. 
+Therefore, we can conclude that if one thread is blocked, 
+it indicates that there is another thread is making progress, 
+which is lock-free, as shown in \fig{fig:progress-type}.
+
+As described in \secref{spmc-solution2}, a blocking mechanism uses mutex lock; 
+we can see that only one thread is active when it accesses the job queue. 
+Although \textsc{CAS} will continue to execute Read and Modify, 
+it doesn't result in an increase in overall progress. 
+This is because the operations will be useless when atomic \textsc{CAS} fails. 
+Therefore, we can understand that lock-free algorithms are not faster than blocking ones. 
+The reason for using lock-free is to ensure that if one thread is blocked, 
+it doesn't cause other threads to be blocked, 
+thereby ensuring that the overall system must make progress over a long period of time.
+
+\subsection{Conclusion about lock-free}
+In conclusion about lockfree, 
+we can see that both blocking and lockless approaches have their place in software development. 
+They serve different purposes with their own design philosophies. 
+When performance is a key consideration, it is crucial to profile your application, 
+take advantage of every concurrency tool or mechanism, and accompany them with appropriate data structures and algorithms. 
+The performance impact varies with numerous factors, such as thread count and CPU architecture specifics. 
+Balancing complexity and performance is essential in concurrency, 
+a domain fraught with challenges.
 
 \section{Sequential consistency on weakly-ordered hardware}
 
@@ -885,7 +1145,7 @@ A release works the opposite manner, allowing actions to move in an $after \to b
 On \textsc{Arm} and other weakly-ordered architectures, this enables us to eliminate one of the memory barriers in each operation,
 such that
 
- \begin{cppcode}
+\begin{cppcode}
 int acquireFoo()
 {
     return foo.load(memory_order_acquire);
@@ -1124,45 +1384,6 @@ Since most programming languages have converged on the memory model we have been
 \textsc{Arm}v8 processors offer dedicated load-acquire and store-release instructions: \keyword{lda} and \keyword{stl}.
 Hopefully, future \textsc{CPU} architectures will follow suit.
 
-\section{Cache effects and false sharing}
-\label{false-sharing}
-
-Given all the complexities to consider, modern hardware adds another layer to the puzzle.
-Remember, memory moves between main \textsc{RAM} and the \textsc{CPU} in segments known as cache lines.
-These lines also represent the smallest unit of data transferred between cores and their caches.
-When one core writes a value and another reads it,
-the entire cache line containing that value must be transferred from the first core's cache(s) to the second,
-ensuring a coherent ``view'' of memory across cores.
-
-This dynamic can significantly affect performance.
-Take a readers-writer lock, for example,
-which prevents data races by allowing either a single writer or multiple readers access to shared data but not simultaneously.
-At its most basic, this concept can be summarized as follows:
-\begin{cppcode}
-struct RWLock {
-    int readers;
-    bool hasWriter; // Zero or one writers
-};
-\end{cppcode}
-Writers must wait until the \cc|readers| count drops to zero,
-while readers can acquire the lock through an atomic \textsc{RMW} operation if \cc|hasWriter| is \cpp|false|.
-
-At first glance, this approach might seem significantly more efficient than exclusive locking mechanisms (e.g., mutexes or spinlocks) in scenarios where shared data is read more frequently than written.
-However, this perspective overlooks the impact of cache coherence.
-If multiple readers on different cores attempt to acquire the lock simultaneously,
-the cache line containing the lock will constantly be transferred among the caches of those cores.
-Unless the critical sections are considerably lengthy,
-the time spent managing this cache line movement could exceed the time spent within the critical sections themselves,\punckern\footnote{%
-This situation underlines how some systems may experience a cache miss that is substantially more costly than an atomic \textsc{RMW} operation,
-as discussed in Paul~E.\ McKenney's
-\href{https://www.youtube.com/watch?v=74QjNwYAJ7M}{talk from CppCon~2017}
-for a deeper exploration.}
-despite the algorithm's non-blocking nature.
-
-This slowdown is even more insidious when it occurs between unrelated variables that happen to be placed on the same cache line.
-When designing concurrent data structures or algorithms,
-this \introduce{false sharing} must be taken into account.
-One way to avoid it is to pad atomic variables with a cache line of unshared data, but this is obviously a large space-time tradeoff.
 
 \section{If concurrency is the question, \texttt{volatile} is not the answer.}
 % Todo: Add ongoing work from JF's CppCon 2019 talk?
