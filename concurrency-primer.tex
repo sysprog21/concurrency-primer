@@ -1092,9 +1092,8 @@ So, how do we tell the compiler as much?
 
 \subsection{Memory consistency models}
 
-When a program is compiled and executed, it doesn't always follow the written order.
+When a program is compiled and executed, it does not always follow the written order.
 The system may change the sequence and optimize it to simulate line-by-line execution, as long as the final result matches the expected outcome.
-
 This requires an agreement between the programmer and the system (hardware, compiler, etc.), ensuring that if the rules are followed, the execution will be correct.
 Correctness here means defining permissible outcomes among all possible results, known as memory consistency models.
 These models allow the system to optimize while ensuring correct execution.
