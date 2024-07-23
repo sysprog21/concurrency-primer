@@ -893,7 +893,6 @@ Consider the following scenario,
 
 \inputminted{c}{./examples/simple_aba_example.c}
 
-Compile it with \monobox{gcc -std=c11 -Wall -Wextra -pthread simple\_aba\_example.c}.
 The execution result would be:
 
 \begin{ccode}
@@ -916,9 +915,10 @@ In \monobox{worker} function, we have the thread trying to claim the job.
 
 \begin{ccode}
     job_t *job = atomic_load(&thrd_pool->head->prev);
+    ...
     while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                           job->prev)) {
-    }
+                                           job->prev))
+        ;
 \end{ccode}
 
 Consider the following scenario:
@@ -939,7 +939,7 @@ Notice that even though \monobox{job->prev} is not loaded explicitly before comp
 At the end, the dangling pointer could either point to garbage or trigger segmentation fault.
 It could be even worse if nested ABA problem occurs in thread B.
 Also, the possibility to allocate a job with same address could be higher when using memory pool, meaning that more chances to have ABA problem occurred.
-In fact, pre-allocated memory should be used to achive lock-free since \monobox{malloc} could have mutex involved in multithreaded environment.
+In fact, pre-allocated memory should be used to achieve lock-free since \monobox{malloc} could have mutex involved in multithreaded environment.
 
 Failure to recognize changed target object through comparison can result in stale information.
 The general concept of solving this problem involves adding more information to make different state distinguishable, and then making a decision on whether to act on the old state or retry with the new state.
@@ -957,8 +957,8 @@ It requires the compare-and-swap instruction to be capable of comparing a wider 
 Sometimes, this is referred to as \introduce{double-width compare-and-swap}.
 On x86-64 processors, for atomic instructions that load or store more than a CPU word size, it needs additional hardware support.
 You can use \monobox{\$ grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
-For hardware that does not support the desired size, software implementations which may have locks involve are used instead as mentioned in \secref{arbitrarily-size}.
-Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx64} to enable 16-byte compare-and-swap in \monobox{worker} function.
+For hardware that does not support the desired size, software implementations which may have locks involve are used instead, as mentioned in \secref{atomictype}.
+Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in \monobox{worker} function.
 
 \inputminted{c}{./examples/rmw_example_aba.c}
 
