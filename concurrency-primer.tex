@@ -902,8 +902,8 @@ The execution result would be:
     A: v = 52
 \end{ccode}
 
-In the example provided, the presence of ABA problem results in thread A being unaware that variable \monobox{v} has been altered.
-Since the comparison result indicates \monobox{v} unchanged, \monobox{v + 10} is swapped in.
+In the example provided, the presence of ABA problem results in thread A being unaware that variable \cc{v} has been altered.
+Since the comparison result indicates \cc{v} unchanged, \cc{v + 10} is swapped in.
 Here sleeping is only used to ensure the occurrence of ABA problem.
 In real world scenario, instead of sleeping, thread A could paused by being context switched for other tasks, including being preempted by higher priority tasks.
 This example seems harmless, but things can get nasty when atomic \textsc{RMW} operations are used in more complex data structures.
@@ -924,18 +924,18 @@ In \monobox{worker} function, we have the thread trying to claim the job.
 Consider the following scenario:
 \begin{enumerate}
     \item There is only one job left.
-    \item Thread A loads the pointer to the job by \monobox{atomic\_load()}.
+    \item Thread A loads the pointer to the job by \cc{atomic_load()}.
     \item Thread A is preempted.
-    \item Thread B claims the job and successfully updates \monobox{thrd\_pool->head->prev}.
+    \item Thread B claims the job and successfully updates \cc{thrd_pool->head->prev}.
     \item Thread B sets thread pool state to idle.
     \item Main thread finishes waiting and adds more jobs.
     \item Memory allocator reuses the recently freed memory as new jobs addresses.
     \item Fortunately, the first added job has the same address as the one thread A held.
-    \item Thread A is back in running state. The comparison result is equal so it updates \monobox{thrd\_pool->head->prev} with the old \monobox{job->prev}, which is already a dangling pointer.
-    \item Another thread loads the dangling pointer from \monobox{thrd\_pool->head->prev}.
+    \item Thread A is back in running state. The comparison result is equal so it updates \cc{thrd_pool->head->prev} with the old \cc{job->prev}, which is already a dangling pointer.
+    \item Another thread loads the dangling pointer from \cc{thrd_pool->head->prev}.
 \end{enumerate}
 
-Notice that even though \monobox{job->prev} is not loaded explicitly before comparison, compiler could place loading instructions before comparison. 
+Notice that even though \cc{job->prev} is not loaded explicitly before comparison, compiler could place loading instructions before comparison. 
 At the end, the dangling pointer could either point to garbage or trigger segmentation fault.
 It could be even worse if nested ABA problem occurs in thread B.
 Also, the possibility to allocate a job with same address could be higher when using memory pool, meaning that more chances to have ABA problem occurred.
@@ -956,15 +956,15 @@ In addition to embedding the version number into a pointer, we could consider ut
 It requires the compare-and-swap instruction to be capable of comparing a wider size at once.
 Sometimes, this is referred to as \introduce{double-width compare-and-swap}.
 On x86-64 processors, for atomic instructions that load or store more than a CPU word size, it needs additional hardware support.
-You can use \monobox{\$ grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
+You can use \monobox{grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
 For hardware that does not support the desired size, software implementations which may have locks involve are used instead, as mentioned in \secref{atomictype}.
 Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in \monobox{worker} function.
 
 \inputminted{c}{./examples/rmw_example_aba.c}
 
-Notice that, in the \monobox{struct idle\_job}, a union is used for type punning, which bundles the pointer and version number for compare-and-swap.
+Notice that, in the \cc{struct idle_job}, a union is used for type punning, which bundles the pointer and version number for compare-and-swap.
 Directly casting a job pointer to a pointer that points to a 16-byte object is undefined behavior (due to having different alignment), thus type punning is used instead.
-By using this techniques, \monobox{struct idle\_job} still can be accessed normally in other places, minimizing code modification.
+By using this techniques, \cc{struct idle_job} still can be accessed normally in other places, minimizing code modification.
 Compiler optimizations are conservative on type punning, but it is acceptable for atomic operations.
 See \secref{fusing}.
 Another way to prevent ABA problem in the example is using safe memory reclamation mechanisms.
