@@ -884,10 +884,10 @@ Balancing complexity and performance is essential in concurrency,
 a domain fraught with challenges.
 
 \subsection{ABA problem}
-We have introduced CAS as one of the read-modify-write operations.
-However, does the target object not changing really mean that no other threads modified it halfway through?
-If the target object is changed to something by other thread and changed back, the result of comparison is still equal.
-Although the target object has indeed been changed, causing the operation not remaining atomic.
+CAS has been introduced as one of the read-modify-write operations.
+However, the target object not changing does not necessarily mean that no other threads modified it halfway through.
+If the target object is changed by another thread and then changed back, the result of comparison would still be equal.
+In this case, the target object has indeed been modified, yet the operation appears unchanged, compromising its atomicity.
 We call this \introduce{ABA problem}.
 Consider the following scenario,
 
