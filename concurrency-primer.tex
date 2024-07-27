@@ -941,7 +941,8 @@ It could be even worse if nested ABA problem occurs in thread B.
 Also, the possibility to allocate a job with same address could be higher when using memory pool, meaning that more chances to have ABA problem occurred.
 In fact, pre-allocated memory should be used to achieve lock-free since \monobox{malloc} could have mutex involved in multi-threaded environment.
 
-Failure to recognize changed target object through comparison can result in stale information.
+Being unable to determine whether the target object has been changed through comparison could result in a false positive when the return value of CAS is true.
+Thus, the atomicity provided by CAS is not guaranteed.
 The general concept of solving this problem involves adding more information to make different state distinguishable, and then making a decision on whether to act on the old state or retry with the new state.
 If acting on the old state is chosen, then safe memory reclamation should be considered as memory may have already been freed by other threads.
 More aggressively, one might consider the programming paradigm where each operation on the target object does not have a side effect on modifying it.
