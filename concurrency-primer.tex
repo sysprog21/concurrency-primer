@@ -529,7 +529,7 @@ PI calculated with 100 terms: 3.141592653589793
 \end{ccode}
 
 \textbf{Exchange}
-In function \monobox{thread\_pool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads the current state and replaces it with ``cancelled''. 
+In function \monobox{tpool\_destroy}, \monobox{atomic\_exchange(\&thrd\_pool->state, cancelled)} reads the current state and replaces it with ``cancelled''. 
 A warning message is printed if the pool is destroyed while workers are still ``running''. 
 If the exchange is not performed atomically, we may initially get the state as ``running''. Subsequently, a thread could set the state to ``cancelled'' after finishing the last one, resulting in a false warning.
 
@@ -541,7 +541,7 @@ Subsequently, the main thread will be blocked until the worker clears the flag.
 This indicates that the main thread will wail until the worker completes the job and returns ownership back to the main thread, which ensures correct cooperation.
 
 \textbf{Fetch and…}
-In the function \monobox{thread\_pool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to ``idle''. 
+In the function \monobox{tpool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to ``idle''. 
 Yet, in this case, it is not necessary, as the pool needs to be reinitialized for further use regardless.
 Its return value could be further utilized, for instance, to report the previous state and perform additional actions.
 
@@ -959,7 +959,7 @@ Sometimes, this is referred to as \introduce{double-width compare-and-swap}.
 On x86-64 processors, for atomic instructions that load or store more than a CPU word size, it needs additional hardware support.
 You can use \monobox{grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
 For hardware that does not support the desired size, software implementations which may have locks involve are used instead, as mentioned in \secref{atomictype}.
-Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in \monobox{worker} function.
+Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in \monobox{worker} function.\footnote{When using \texttt{-mcx16}, programs relying on 16-byte atomic operations (e.g., using \texttt{\_\_int128}) may require linking with \texttt{-latomic}, as these operations are implemented via function calls to \texttt{libatomic} on some systems. See \url{https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104688}.}
 
 \inputminted{c}{./examples/rmw_example_aba.c}
 
