@@ -1,0 +1,23 @@
+concurrency-primer.tex
+  s_3680e3e6663245::t_e16d7e7563fa83 1350-1352
+  s_3680e3e6663245::t_0d27f115a2a015 1354
+  s_3680e3e6663245::t_45be60bbcae8c7 1818-1823
+  s_3680e3e6663245::t_44a4aaf48ff4cf 1223
+  s_3680e3e6663245::t_136821a83b8d3a 1229-1276
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2ba35f719e5f3d25ae5057dfd525e4319b411de1",
+  "prompts": {},
+  "sessions": {
+    "s_3680e3e6663245": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3c0e499-b3f1-44cb-8590-ef42efa67520",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>"
+    }
+  }
+}
