@@ -1,0 +1,19 @@
+README.md
+  s_32f87cd5f7585d::t_fff05aaee503cb 7-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "7b001522789e0802fb22598256151363aef0058d",
+  "prompts": {},
+  "sessions": {
+    "s_32f87cd5f7585d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d1c313c-5d53-42b0-b530-c74695a367f9",
+        "model": "unknown"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>"
+    }
+  }
+}
