@@ -1,33 +1,129 @@
-name: generate-pdf-actions
-on: [push]
+name: build-deploy-pdf
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# Default token is read-only; the release job re-grants write below.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
- concurrency-primer:
+  build:
+    name: Build PDF
     runs-on: ubuntu-latest
+    # Pinned by digest so a future texlive/texlive:latest push cannot
+    # silently change the rendered PDF or break the build.
+    # Digest as of 2026-05-10 (texlive/texlive:latest).
+    container: texlive/texlive@sha256:a38949128a1828f251bb5b4b2ec945644eb4962ce3adae1996f5edc839629bd1
+    timeout-minutes: 30
     steps:
-    - uses: actions/checkout@v4
-      continue-on-error: true
-    - name: install-texlive
-      run: |
-        sudo apt-get update
-        sudo apt-get install -q -y texlive-full texlive-latex-base
-      shell: bash
-    - uses: actions/setup-python@v5
-      with:
-          python-version: '3.10' 
-    - name: install-pygments
-      run: |
-        python -m pip install --upgrade pip
-        pip install pygments
-    - name: make
-      run: make
-    - name: Create and Upload Release
-      id: release
-      uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: |
-          ./concurrency-primer.pdf
-        tag_name: ${{ github.ref_name }}
-        body: |
-          Changes in this Release
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Mark workspace safe for git
+        # The texlive container runs as root; git refuses to operate on
+        # a workspace owned by another UID without this exemption.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install build dependencies
+        # The texlive/texlive image does not ship with wget, which the
+        # Makefile uses to fetch lstlangarm.sty. Install it explicitly.
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends wget ca-certificates
+
+      - name: Cache TeX intermediates
+        uses: actions/cache@v5
+        with:
+          path: |
+            concurrency-primer.aux
+            concurrency-primer.fdb_latexmk
+            concurrency-primer.fls
+            concurrency-primer.out
+            concurrency-primer.toc
+          key: tex-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yml', 'concurrency-primer.tex', 'Makefile', 'lib/**/*.tex', 'examples/**/*') }}
+
+      - name: Build PDF
+        run: make 2>&1 | tee build.log
+
+      - name: Verify output exists
+        run: |
+          test -s concurrency-primer.pdf
+          ls -lh concurrency-primer.pdf
+
+      - name: Upload PDF artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: concurrency-primer-pdf
+          path: concurrency-primer.pdf
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-diagnostics
+          path: |
+            build.log
+            concurrency-primer.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Publish latest release
+    needs: build
+    # Release only on direct push to main. PRs run the build job above for
+    # validation but never reach this job, so no "main" tag is ever created.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download PDF artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: concurrency-primer-pdf
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: concurrency-primer.pdf
+          tag_name: latest
+          target_commitish: ${{ github.sha }}
+          name: Latest build
+          prerelease: true
+          body: |
+            Automatically built PDF from the latest commit on `main`.
+
+            Source commit: ${{ github.sha }}
+
+      - name: Move latest tag to current commit
+        # On the first publish, action-gh-release can create `latest` at the
+        # current commit via target_commitish. On later publishes, the Releases
+        # API updates assets/body but leaves an existing tag in place, so move
+        # the ref only after the upload succeeds.
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa latest -m "Latest build from ${GITHUB_SHA::7}"
+          git push origin refs/tags/latest --force
