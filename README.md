@@ -4,6 +4,12 @@ This repository contains the LaTeX source for a pretentiously-named,
 but hopefully concise,
 introduction to low-level concurrency.
 
+## Prebuilt PDF
+
+If you just want to read the primer, grab the latest typeset PDF from the
+[Releases page](https://github.com/sysprog21/concurrency-primer/releases).
+Building from source (below) is only necessary if you intend to modify the text.
+
 ## How do I build it?
 
 Install a modern, Unicode-aware LaTeX, such as LuaLaTeX.
