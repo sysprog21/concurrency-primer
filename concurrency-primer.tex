@@ -477,11 +477,11 @@ if it were executed atomically:
 /* A is an atomic type. C is the non-atomic type corresponding to A */
 bool atomic_compare_exchange_strong(A* obj, C* expected, C desired)
 {
-    if (memcmp(obj, expected, sizeof(*object)) == 0) {
-        memcpy(obj, &desired, sizeof(*object));
+    if (memcmp(obj, expected, sizeof(*obj)) == 0) {
+        memcpy(obj, &desired, sizeof(*obj));
         return true;
     } else {
-        memcpy(expected, obj, sizeof(*object));
+        memcpy(expected, obj, sizeof(*obj));
         return false;
     }
 }
