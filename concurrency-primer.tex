@@ -328,10 +328,10 @@ This model, defined by Leslie Lamport in 1979,
 is called \introduce{sequential consistency}.
 
 Notice that using atomic variables as an lvalue expression, such as \monobox{v\_ready = true} and \monobox{while(!v\_ready)}, is a convenient alternative to explicitly using \monobox{atomic\_load} or \monobox{atomic\_store}.\punckern\footnote{%
-Atomic load/store are not necessary generated as atomic instructions.
-Under a weaker consistency model, they could simply be normal load/store,
+Atomic load/store operations are not necessarily generated as atomic instructions.
+Under a weaker consistency model, they could simply be normal load/store operations,
 and their code generation can vary across different architectures.
-Checkout \href{https://llvm.org/docs/Atomics.html\#atomics-and-codegen}{LLVM's document} as an example to see how it is handled.}
+Check out \href{https://llvm.org/docs/Atomics.html\#atomics-and-codegen}{LLVM's documentation} as an example to see how it is handled.}
 As stated in C11 6.7.2.4 and 6.7.3, the properties associated with atomic types are meaningful only for expressions that are
 lvalues.
 Lvalue-to-rvalue conversion (which models a memory read from an atomic location to a CPU register) strips atomicity along with other qualifiers.
@@ -398,11 +398,11 @@ static_assert(std::atomic<Foo>::is_always_lock_free);
 \label{rmw}
 
 So far we have introduced the importance of order and atomicity.
-In \secref{seqcst}, we see how an atomic object ensures the order of single store or load operation is not reordered by the compiler within a program. 
+In \secref{seqcst}, we see how an atomic object ensures the order of a single store or load operation is not reordered by the compiler within a program. 
 Only upon establishing the correct inter-thread order can we continue to pursue how multiple threads can establish a correct cross-thread order. 
 After achieving this goal, we can further explore how concurrent threads can coordinate and collaborate smoothly.
-In \secref{atomicity}, there is a need for atomicity to ensure that a group of operations is not only sequentially executed but also completes without being interrupted by operation from other threads.
-This establishes correct order of operations from different threads.
+In \secref{atomicity}, there is a need for atomicity to ensure that a group of operations is not only sequentially executed but also completes without being interrupted by operations from other threads.
+This establishes the correct order of operations from different threads.
 
 \begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.6\linewidth]{images/atomic-rmw}
@@ -414,7 +414,7 @@ Atomic loads and stores are all well and good when we do not need to consider th
 As shown in \fig{fig:atomic-rmw}, the modification is based on the previous state that is visible for reading, and the result is then written back.
 A complete \introduce{read-modify-write} operation is performed atomically to ensure visibility to subsequent operations.
   
-Furthermore, for communication between concurrent threads, a shared resource is required, as shown in \fig{fig:atomicity} 
+Furthermore, for communication between concurrent threads, a shared resource is required, as shown in \fig{fig:atomicity}.
 Think back to the discussion in previous sections. 
 In order for concurrent threads to collaborate on operating a shared resource, we need a way to communicate. 
 Thus, the need for a channel for communication arises with the appearance of the shared resource.
@@ -423,7 +423,7 @@ As discussed earlier, the process of accessing shared resources responsible for 
 To prevent the recursive protection of shared resources, 
 atomic operations can be introduced for the shared resources responsible for communication, as shown in \fig{fig:atomic-types}.
 
-There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations to make theses operation become a single atomic step.
+There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations that turn a read, a modification, and a write into a single atomic step.
 In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
 
@@ -439,7 +439,7 @@ The red color represents atomic RMW operations, while the blue color represents 
 Transform \textsc{RMW} into modifying a private variable first, 
 and then directly swapping the private variable with the shared variable. 
 Therefore, we only need to ensure that the second step, 
-which involves Read that load the shared variable and then Modify and Write that exchange it with the private variable, 
+which involves a Read that loads the shared variable, followed by Modify and Write steps that exchange it with the private variable,
 is a single atomic step.
 This allows programmers to extensively modify the private variable beforehand and only write it to the shared variable when necessary. 
 
@@ -448,12 +448,12 @@ This allows programmers to extensively modify the private variable beforehand an
 \introduce{Test-and-set} works on a Boolean value:
 we read it, set it to \cpp|true|, and provide the value it held beforehand.
 \clang{} and \cplusplus{} offer a type dedicated to this purpose, called \monobox{atomic\_flag}.
-The initial value of an \monobox{atomic\_flag} is indeterminate until initialized with \monobox{ATOMIC\_FLAG\_INIT} macro.
+The initial value of an \monobox{atomic\_flag} is indeterminate until initialized with the \monobox{ATOMIC\_FLAG\_INIT} macro.
 
 \introduce{Test-and-set} operations are not limited to just \textsc{RMW} functions; 
-they can also be utilized for constructing simple spinlock. 
+they can also be utilized for constructing a simple spinlock.
 In this scenario, the flag acts as a shared resource for communication between threads. 
-Thus, spinlock implemented with \introduce{Test-and-set} operations ensures that entire \textsc{RMW} operations on shared resources are performed atomically, as shown in \fig{fig:atomic-types}.
+Thus, a spinlock implemented with \introduce{Test-and-set} operations ensures that each full \textsc{RMW} operation on shared resources is performed atomically, as shown in \fig{fig:atomic-types}.
 \label{spinlock}
 \begin{ccode}
 atomic_flag af = ATOMIC_FLAG_INIT;
@@ -475,7 +475,7 @@ someone else has acquired the lock and we must wait until they release it by cle
 Transform \textsc{RMW} to directly modify the shared variable (such as addition, subtraction,
 or bitwise \textsc{AND}, \textsc{OR}, \textsc{XOR}) and return its previous value, 
 all as part of a single atomic operation. 
-Compare with \introduce{Exchange} \secref{exchange}, when programmers only need to make simple modification to the shared variable, 
+Compared with \introduce{Exchange} in \secref{exchange}, when programmers only need to make a simple modification to the shared variable,
 they can use \introduce{Fetch-and…}.
 
 \subsection{Compare and swap}
@@ -508,30 +508,30 @@ Because \textsc{CAS} involves an expected value comparison,
 it allows \textsc{CAS} operations to extend beyond just \textsc{RMW} functions. 
 Here's how it works: First, read the shared resource and use this value as the expected value. 
 Modify the private variable, and then \textsc{CAS}. Compare the current shared variable with the expected shared variable. 
-If they match, it indicates that modify is exclusive, ant then write by swaping the shared variable with the private variable.
+If they match, it indicates that Modify is exclusive, and then write by swapping the shared variable with the private variable.
 If they don't match, it implies that interference from another thread has occurred.
-Subsequently, update the expected value with the current shared value and retry modify in a loop. 
+Subsequently, update the expected value with the current shared value and retry Modify in a loop.
 This iterative process allows \textsc{CAS} to serve as a communication mechanism between threads, 
 ensuring that entire \textsc{RMW} operations on shared resources are performed atomically.
 As shown in \fig{fig:atomic-types}, compared with \introduce{Test-and-set} \secref{Testandset}, 
 a thread that employs \textsc{CAS} can directly use the shared resource to check.
-It uses atomic \textsc{CAS} to ensure that Modify is atomic, 
+It uses atomic \textsc{CAS} to ensure that the Modify step is atomic,
 coupled with a while loop to ensure that the entire \textsc{RMW} can behave atomically.
 
 However, atomic \textsc{RMW} operations here are merely a programming tool for programmers to achieve program logic correctness. 
-Its actual execution as atomic operations depends on the how compiler translate it into actual atomic instructions based on differenct hardware instruction set. 
-\introduce{Exchange}, \introduce{Fetch-and-Add}, \introduce{Test-and-set} and \textsc{CAS} in instruction level are different style of atomic \textsc{RMW} instructions. 
-ISA could only provide some of them, 
+Whether they actually execute atomically depends on how the compiler translates them into atomic instructions for a given hardware instruction set.
+At the instruction level, \introduce{Exchange}, \introduce{Fetch-and-Add}, \introduce{Test-and-set}, and \textsc{CAS} are different styles of atomic \textsc{RMW} instructions.
+An ISA may provide only some of them,
 leaving the rest to compilers to synthesize atomic \textsc{RMW} operations. 
-For example, In IA32/64 and IBM System/360/z architectures, 
+For example, in IA32/64 and IBM System/360/z architectures,
 \introduce{Test-and-set} functionality is directly supported by hardware instructions. 
-x86 has XCHG, XADD for \introduce{Exchange} and \introduce{Fetch-and-Add} but has \introduce{Test-and-set} implemented with XCHG. 
-Arm, in another style, provides LL/SC (Load Linked/Store Conditional) flavor instructions for all the operations, 
+x86 has XCHG and XADD for \introduce{Exchange} and \introduce{Fetch-and-Add}, but implements \introduce{Test-and-set} with XCHG.
+Arm takes another approach, providing LL/SC (Load Linked/Store Conditional)-style instructions for all the operations,
 with \textsc{CAS} added in Armv8/v9-A.
 
-\subsection{example}
+\subsection{Example}
 \label{rmw_example}
-The following example code is a simplified implementation of a thread pool, which demonstrates the use of \clang{}11 atomic library.
+The following example code is a simplified implementation of a thread pool, which demonstrates the use of the \clang{}11 atomic library.
 
 \inputminted{c}{./examples/rmw_example.c}
 
@@ -550,7 +550,7 @@ In this example, the scenario is as follows:
 First, the main thread initially acquires a lock \monobox{future->flag} and then sets it true, 
 which is akin to creating a job and then transferring its ownership to the worker. 
 Subsequently, the main thread will be blocked until the worker clears the flag. 
-This indicates that the main thread will wail until the worker completes the job and returns ownership back to the main thread, which ensures correct cooperation.
+This indicates that the main thread will wait until the worker completes the job and returns ownership to the main thread, allowing the two threads to cooperate correctly.
 
 \textbf{Fetch and…}
 In the function \monobox{tpool\_destroy}, \monobox{atomic\_fetch\_and} is utilized as a means to set the state to ``idle''. 
@@ -579,18 +579,18 @@ Data races are undefined behavior in \clang{}11 and \cplusplus{}11.
 Working on the same job can lead to duplication of the calculation of \cc|job->future->result|, 
 use after free and double free on the job.
 
-But even when jobs were claimed atomically, a thread can still have chances holding a job that has been freed.
+But even when jobs are claimed atomically, a thread can still end up holding a job that has been freed.
 This is a defect of the example code.
-Jobs in the example are dynamically allocated. They are freed after worker finishes each job. 
+Jobs in the example are dynamically allocated. They are freed after a worker finishes each job.
 However, this situation may lead to dangling pointers for workers that are still holding and attempting to claim the job. 
 If jobs are intended to be dynamically allocated, then safe memory reclamation should be implemented for such shared objects.
-RCU, hazard pointer and reference counting are major ways of solving this problem.
+RCU, hazard pointers, and reference counting are major ways of solving this problem.
 
 \subsection{Further improvements}
 At the beginning of \secref{rmw}, we described how a global total order is established by combining local order and inter-thread order imposed by atomic objects. 
 But should every object, including non-atomic ones, participate in a single global order established by atomic objects?
-\introduce{Sequential consistency} solves the ordering problem in in \secref{seqcst}, but it may force too much ordering, as some normal operations may not require it.
-Without specifying, atomic operations in \clang{}11 atomic library use \monobox{memory\_order\_seq\_cst} as default memory order. Operations post-fix with \monobox{\_explicit} accept an additional argument to specify which memory order to use.
+\introduce{Sequential consistency} solves the ordering problem in \secref{seqcst}, but it may force too much ordering, as some normal operations may not require it.
+By default, atomic operations in the \clang{}11 atomic library use \monobox{memory\_order\_seq\_cst} as the default memory order. Operations with the \monobox{\_explicit} suffix accept an additional argument to specify which memory order to use.
 How to leverage memory orders to optimize performance will be covered later in \secref{lock-example}.
 
 \section{Shared Resources}
@@ -650,10 +650,10 @@ This disparity severely limits the scalability of the spin lock.
 
 \begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.9\linewidth]{images/spinlock}
-\caption{Three processors use lock as a communication channel to insure the access operations to the shared L2 cache will be correct. 
+\caption{Three processors use a lock as a communication channel to ensure correct access to the shared L2 cache.
 Processors 2 and 3 are trying to acquire a lock that is held by processor 1. 
 Therefore, when processor 1 unlocks, 
-the state of lock needs to be updated on other processors' private L1 cache.}
+the state of the lock needs to be updated in the other processors' private L1 caches.}
 \label{fig:spinlock}
 \end{figure}
 
@@ -753,32 +753,32 @@ The main goal is that the whole system,
 which contains all concurrent threads, 
 is always making forward progress. 
 To achieve this goal, we rely on concurrency tools, 
-including atomic operation and the operations that perform atomically, as described in \secref{rmw}. 
-Additionally, we carefully select synchronization mechanism, as described in \secref{concurrency-tool}, 
+including atomic operations and operations that behave atomically, as described in \secref{rmw}.
+Additionally, we carefully select synchronization mechanisms, as described in \secref{concurrency-tool}, 
 which may involve utilizing shared resources for communication (e.g., spinlock), as described in \secref{shared-resources}. 
 Furthermore, we design our program with appropriate data structures and algorithms. 
 Therefore, lock-free doesn't mean we cannot use any lock; 
-we just need to ensure that the blocking mechanism will not limit the scalability and that the system can avoid the problems described in \secref{concurrency-tool} (e.g., long time of waiting, deadlock).
+we just need to ensure that the blocking mechanism will not limit the scalability and that the system can avoid the problems described in \secref{concurrency-tool} (e.g., long waits, deadlock).
 
 Next, we take the single producer and multiple consumers problem as an example to demonstrate how to achieve fully lock-free programming by improving some implementations step by step.\punckern\footnote{%
-The first three solutions, which are \secref{spmc-solution1}, \secref{spmc-solution2}, and \secref{spmc-solution3}, are referenced in the Herb Sutter's
+The first three solutions, which are \secref{spmc-solution1}, \secref{spmc-solution2}, and \secref{spmc-solution3}, are based on Herb Sutter's
 \href{https://youtu.be/c1gO9aB9nbs?si=7qJs-0qZAVqLHr1P}{talk from CppCon~2014.}}
 This problem is that one producer generates tasks and adds them to a job queue, 
 and multiple consumers take tasks from the job queue and execute them.
 \subsection{SPMC solution - lock-based}
 \label{spmc-solution1}
-Firstly, introduce the scenario of lock-based algorithms. 
+First, we introduce the scenario of lock-based algorithms. 
 At any time, there is only one consumer that can get the lock to access the job queue.
-This is because in this scenario, the lock is mutex lock, also known as a mutual exclusive lock.
-Not until the consumer releases the lock are the other consumers blocked when attempting to access the job queue.
+This is because in this scenario, the lock is a mutex lock, also known as a mutual-exclusion lock.
+Until the consumer releases the lock, the other consumers are blocked when attempting to access the job queue.
 
 The following text explains the meaning of each state in the \fig{fig:spmc-solution1}.
 
-\textbf{state 1} : The producer is adding tasks to the job queue while multiple consumers wait for tasks to become available and is ready to take on any job that appears in the job queue.
+\textbf{state 1} : The producer is adding tasks to the job queue while multiple consumers wait for tasks to become available and are ready to take on any job that appears in the job queue.
 
 \textbf{state 2} $\to$ \textbf{state 3} : After the producer adds a task to the job queue,
-the producer releases the mutex lock, and then wake the consumers up. 
-Those consumers tried to acquire the lock of the job queue for the job before.
+the producer releases the mutex lock, and then wakes up the consumers.
+Those consumers had previously tried to acquire the job queue lock.
 
 \textbf{state 3} $\to$ \textbf{state 4} : Consumer 1 acquires the mutex lock for the job queue,
 retrieves a task from it, and then releases the mutex lock.
@@ -788,8 +788,8 @@ However, after they acquire the lock, they find no tasks in the queue.
 This is because the producer has not added more tasks to the job queue.
 
 \textbf{state 6} : Consequently, the consumers wait on a condition variable. 
-During this time, the consumers are not busy waiting but rather waiting for the producer to wake it up. 
-This is because the mechanism is an advanced form of mutex lock.
+During this time, the consumers are not busy waiting but rather waiting for the producer to wake them up. 
+This is because the mechanism is an advanced form of a mutex lock.
 
 \begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.6\linewidth]{images/spmc-solution1}
@@ -803,7 +803,7 @@ First, if a producer suspends,
 it causes consumers to have no job available, 
 leading them to block and thus halting progress in the entire system, 
 which is obstruction-free, as shown in the \fig{fig:progress-type}.
-Secondly, consumers concurrently need to access shared resources, which is the job.
+Second, consumers need to concurrently access a shared resource: the job.
 Then, one consumer acquires the lock of the job queue but suddenly gets suspended before completing without unlocking, 
 causing other consumers to be blocked.
 Meanwhile, the producer still keeps adding jobs, but the system fails to make any progress,
@@ -816,7 +816,7 @@ As described in \secref{spmc-solution1}, there is a problem when the producer su
 the whole system cannot make any progress.
 Additionally, consumers contend for the lock of the job queue to access the job; 
 however, after they acquire the lock, they may still need to wait when the queue is empty. 
-To solve this issue, the introduction of lock-based and lock-free algorithm is presented in this section.
+To solve this issue, this section introduces lock-based and lock-free algorithms.
 
 The following text explains the meaning of each state in the \fig{fig:spmc-solution2}.
 
@@ -827,7 +827,7 @@ The following text explains the meaning of each state in the \fig{fig:spmc-solut
 \textbf{state 2} : After consumer 2 acquires the lock, it definitely can find that there are still jobs in the queue.
 
 Through this approach, once a consumer obtains the lock on the job queue, 
-there is guaranteed job available unless all jobs have been taken by other consumers.
+there is guaranteed to be a job available unless all jobs have been taken by other consumers.
 Thus, there is no need to wait due to a lack of jobs; 
 the only wait is for acquiring the lock to access the job queue.
 
@@ -838,13 +838,13 @@ including their state transitions.}
 \label{fig:spmc-solution2}
 \end{figure}
 
-This implementation is referred to as both locked-based and lock-free. 
+This implementation is referred to as both lock-based and lock-free. 
 The algorithm is designed such that the producer adds all jobs to the job queue before multiple consumers begin taking them. 
-This design ensures that if the producer suspends or adds the job slowly, 
+This design ensures that if the producer suspends or adds jobs slowly,
 consumers will not be blocked due to the lack of a job. 
-Consumers just thought they have done all the jobs that the producer added.
+Consumers simply think they have completed all the jobs that the producer added.
 Therefore, this implementation qualifies as lock-free, as shown in \fig{fig:progress-type}.
-The reason that implementation of getting a job is locked-based, not lock-free,  
+The reason that the implementation of getting a job is lock-based, not lock-free,  
 is the same as the second reason described in \secref{spmc-solution1}.
 
 \subsection{SPMC solution - fully lock-free}
@@ -853,7 +853,7 @@ As described in \secref{shared-resources},
 we can understand that communications between processors across a chip are through cache lines, 
 which incurs high costs. Additionally, using locks further decreases overall performance and limits scalability.
 However, when locks are necessary for concurrent threads to communicate, 
-reducing the sharing resource and the granularity of the sharing resource to communicate (e.g., spinlock, mutex lock) is crucial.
+reducing the amount of shared state and the granularity of the shared resource used for communication (e.g., spinlock, mutex lock) is crucial.
 Therefore, to achieve fully lock-free programming, we change the data structure to reduce the granularity of locks.
 
 \begin{figure}[H]
@@ -875,19 +875,18 @@ which is lock-free, as shown in \fig{fig:progress-type}.
 \subsection{SPMC solution - fully lock-free with CAS}
 \label{SPMC-solution4}
 In addition to reducing granularity, 
-there is another way to avoid that if one consumer acquires the lock on the job queue but suddenly gets suspended, 
-causing other consumers to be blocked as described in \secref{spmc-solution2}. 
+there is another way to avoid the situation where one consumer acquires the lock on the job queue, gets suspended, and blocks other consumers, as described in \secref{spmc-solution2}.
 As described in \secref{cas}, we can use \textsc{CAS} with a loop to ensure that the write operation achieves semantic atomicity.
 
 Unlike \secref{spmc-solution2}, 
-which uses a shared resource (e.g., advanced form of mutex lock) for blocking synchronization, 
+which uses a shared resource (e.g., an advanced form of a mutex lock) for blocking synchronization,
 the first thread holding the lock causes the other threads to wait until the first thread releases the lock. 
 As described in \secref{cas}, \textsc{CAS} allows threads that initially failed to acquire the lock to continue to execute Read and Modify. 
 Therefore, we can conclude that if one thread is blocked, 
-it indicates that there is another thread is making progress, 
+it indicates that another thread is making progress, 
 which is lock-free, as shown in \fig{fig:progress-type}.
 
-As described in \secref{spmc-solution2}, a blocking mechanism uses mutex lock; 
+As described in \secref{spmc-solution2}, a blocking mechanism uses a mutex lock;
 we can see that only one thread is active when it accesses the job queue. 
 Although \textsc{CAS} will continue to execute Read and Modify, 
 it doesn't result in an increase in overall progress. 
@@ -897,8 +896,8 @@ The reason for using lock-free is to ensure that if one thread is blocked,
 it doesn't cause other threads to be blocked, 
 thereby ensuring that the overall system must make progress over a long period of time.
 
-\subsection{Conclusion about lock-free}
-In conclusion about lockfree, 
+\subsection{Conclusion on lock-free programming}
+To conclude this section on lock-free programming,
 we can see that both blocking and lockless approaches have their place in software development. 
 They serve different purposes with their own design philosophies. 
 When performance is a key consideration, it is crucial to profile your application, 
@@ -926,16 +925,16 @@ The execution result would be:
     A: v = 52
 \end{ccode}
 
-In the example provided, the presence of ABA problem results in thread A being unaware that variable \cc{v} has been altered.
-Since the comparison result indicates \cc{v} unchanged, \cc{v + 10} is swapped in.
-Here sleeping is only used to ensure the occurrence of ABA problem.
-In real world scenario, instead of sleeping, thread A could paused by being context switched for other tasks, including being preempted by higher priority tasks.
+In the example provided, the ABA problem causes thread A to be unaware that variable \cc{v} has been altered.
+Since the comparison result indicates that \cc{v} is unchanged, \cc{v + 10} is swapped in.
+Here, sleeping is only used to ensure the occurrence of the ABA problem.
+In a real-world scenario, instead of sleeping, thread A could be paused by a context switch to another task, including preemption by a higher-priority task.
 This example seems harmless, but things can get nasty when atomic \textsc{RMW} operations are used in more complex data structures.
 
 In a broader context, the ABA problem occurs when changes occur between loading and comparing, but the comparing mechanism is unable to identify that the state of the target object is not the latest, yielding a false positive result.
 
-Back to thread pool example in \secref{rmw}, it contains ABA problem as well.
-In \monobox{worker} function, we have the thread trying to claim the job.
+Returning to the thread pool example in \secref{rmw}, it contains the ABA problem as well.
+In the \monobox{worker} function, we have a thread trying to claim the job.
 
 \begin{ccode}
     job_t *job = atomic_load(&thrd_pool->head->prev);
@@ -951,54 +950,54 @@ Consider the following scenario:
     \item Thread A loads the pointer to the job by \cc{atomic_load()}.
     \item Thread A is preempted.
     \item Thread B claims the job and successfully updates \cc{thrd_pool->head->prev}.
-    \item Thread B sets thread pool state to idle.
-    \item Main thread finishes waiting and adds more jobs.
-    \item Memory allocator reuses the recently freed memory as new jobs addresses.
+    \item Thread B sets the thread pool state to idle.
+    \item The main thread finishes waiting and adds more jobs.
+    \item The memory allocator reuses the recently freed memory for new jobs.
     \item Fortunately, the first added job has the same address as the one thread A held.
     \item Thread A is back in running state. The comparison result is equal so it updates \cc{thrd_pool->head->prev} with the old \cc{job->prev}, which is already a dangling pointer.
     \item Another thread loads the dangling pointer from \cc{thrd_pool->head->prev}.
 \end{enumerate}
 
-Notice that even though \cc{job->prev} is not loaded explicitly before comparison, compiler could place loading instructions before comparison. 
-At the end, the dangling pointer could either point to garbage or trigger segmentation fault.
-It could be even worse if nested ABA problem occurs in thread B.
-Also, the possibility to allocate a job with same address could be higher when using memory pool, meaning that more chances to have ABA problem occurred.
-In fact, pre-allocated memory should be used to achieve lock-free since \monobox{malloc} could have mutex involved in multi-threaded environment.
+Notice that even though \cc{job->prev} is not loaded explicitly before the comparison, the compiler could place loading instructions before the comparison.
+In the end, the dangling pointer could either point to garbage or trigger a segmentation fault.
+It could be even worse if a nested ABA problem occurs in thread B.
+Also, using a memory pool could make allocating a job at the same address more likely, creating more opportunities for the ABA problem to occur.
+In fact, pre-allocated memory should be used to achieve lock-free behavior since \monobox{malloc} could involve a mutex in a multi-threaded environment.
 
 Being unable to determine whether the target object has been changed through comparison could result in a false positive when the return value of CAS is true.
 Thus, the atomicity provided by CAS is not guaranteed.
-The general concept of solving this problem involves adding more information to make different state distinguishable, and then making a decision on whether to act on the old state or retry with the new state.
+The general concept of solving this problem involves adding more information to make different states distinguishable, and then deciding whether to act on the old state or retry with the new state.
 If acting on the old state is chosen, then safe memory reclamation should be considered as memory may have already been freed by other threads.
-More aggressively, one might consider the programming paradigm where each operation on the target object does not have a side effect on modifying it.
-In the later section, we will introduce a different way of implementing atomic \textsc{RMW} operations by using LL/SC instructions. The exclusive status provided by LL/SC instructions avoids the pitfall introduced by comparison.
+More aggressively, one might consider a programming paradigm where each operation on the target object has no side effects that modify it.
+In a later section, we will introduce a different way of implementing atomic \textsc{RMW} operations using LL/SC instructions. The exclusive status provided by LL/SC instructions avoids the pitfall introduced by comparison.
 
-To make different state distinguishable, a common solution is incrementing a version number each time target object is changed.
-By bundling the target object and version into a comparison, it ensures that each change marks a distinguishable result.
-Given a sufficient large size for version number, there should be no repeated version numbers.
+To make different states distinguishable, a common solution is to increment a version number each time the target object is changed.
+Bundling the target object and version into a comparison ensures that each change marks a distinguishable result.
+Given a sufficiently large version number, there should be no repeated version numbers.
 There are multiple methods for storing the version number, depending on the evaluation of the duration before a version number wraps around.
 In the thread pool example, the target object is a pointer. The unused bits in a pointer can be utilized to store the version number.
 In addition to embedding the version number into a pointer, we could consider utilizing an additional 32-bit or 64-bit value next to the target object for the version number.
-It requires the compare-and-swap instruction to be capable of comparing a wider size at once.
+This requires the compare-and-swap instruction to be capable of comparing a wider size at once.
 Sometimes, this is referred to as \introduce{double-width compare-and-swap}.
-On x86-64 processors, for atomic instructions that load or store more than a CPU word size, it needs additional hardware support.
+On x86-64 processors, atomic instructions that load or store more than one CPU word require additional hardware support.
 You can use \monobox{grep cx16 /proc/cpuinfo} to check if the processor supports 16-byte compare-and-swap.
-For hardware that does not support the desired size, software implementations which may have locks involve are used instead, as mentioned in \secref{atomictype}.
-Back to the example, ABA problem in the following code is fixed by using an version number that increments each time a job is added to the empty queue. On x86-64, add a compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in \monobox{worker} function.\footnote{When using \texttt{-mcx16}, programs relying on 16-byte atomic operations (e.g., using \texttt{\_\_int128}) may require linking with \texttt{-latomic}, as these operations are implemented via function calls to \texttt{libatomic} on some systems. See \url{https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104688}.}
+For hardware that does not support the desired size, software implementations that may involve locks are used instead, as mentioned in \secref{atomictype}.
+Returning to the example, the ABA problem in the following code is fixed by using a version number that increments each time a job is added to the empty queue. On x86-64, add the compiler flag \monobox{-mcx16} to enable 16-byte compare-and-swap in the \monobox{worker} function.\footnote{When using \texttt{-mcx16}, programs relying on 16-byte atomic operations (e.g., using \texttt{\_\_int128}) may require linking with \texttt{-latomic}, as these operations are implemented via function calls to \texttt{libatomic} on some systems. See \url{https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104688}.}
 
 \inputminted{c}{./examples/rmw_example_aba.c}
 
 Notice that, in the \cc{struct idle_job}, a union is used for type punning, which bundles the pointer and version number for compare-and-swap.
-Directly casting a job pointer to a pointer that points to a 16-byte object is undefined behavior (due to having different alignment), thus type punning is used instead.
-By using this techniques, \cc{struct idle_job} still can be accessed normally in other places, minimizing code modification.
+Directly casting a job pointer to a pointer that points to a 16-byte object is undefined behavior (due to having different alignment); type punning is used instead.
+By using this technique, \cc{struct idle_job} can still be accessed normally in other places, minimizing code modification.
 Compiler optimizations are conservative on type punning, but it is acceptable for atomic operations.
 See \secref{fusing}.
-Another way to prevent ABA problem in the example is using safe memory reclamation mechanisms.
-Different from previously mentioned acting on the old state, the address of a job is not freed until no one is using it.
-This prevents memory allocator or memory pool from reusing the address and causing problem.
+Another way to prevent the ABA problem in the example is to use safe memory reclamation mechanisms.
+Unlike the previously mentioned approach of acting on the old state, the address of a job is not freed until no thread is using it.
+This prevents the memory allocator or memory pool from reusing the address and causing problems.
 
 \section{Sequential consistency on weakly-ordered hardware}
 
-Different hardware architectures offer distinct memory models or \introduce{memory models}.
+Different hardware architectures offer distinct \introduce{memory models}.
 For instance, x64 architecture\punckern\footnote{%
 Also known as x86-64, x64 is a 64-bit extension of the x86 instruction set, officially unveiled in 1999.
 This extension heralded the introduction of two novel operation modes:
@@ -1694,7 +1693,7 @@ Before reaching for them, ask yourself:
 \item Does every microsecond count here?
 \end{itemize}
 If the answer is not yes to several of these,
-stick to to sequentially consistent operations.
+stick to sequentially consistent operations.
 Otherwise, be sure to give your code extra review and testing.
 
 \section{Hardware convergence}
@@ -1828,7 +1827,7 @@ See the LWN article,
 \href{https://www.youtube.com/watch?v=ZQFzMfHIxng}{%
 \textit{\cplusplus{} atomics, from basic to advanced. What do they really do?}}
 by Fedor Pikus,
-a hour-long talk on this topic.
+an hour-long talk on this topic.
 
 \href{https://lamport.azurewebsites.net/pubs/multi.pdf}{%
 \textit{How to Make a Multiprocessor Computer That Correctly Executes Multiprocess Programs}},
