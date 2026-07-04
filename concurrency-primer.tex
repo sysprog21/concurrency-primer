@@ -1011,12 +1011,12 @@ int getFoo()
     return foo;
 }
 \end{ccode}
-\end{minipage}
+\end{minipage}\hfill
 \raisebox{-1ex}{
 \begin{tikzpicture}
 \draw [->, line width=1pt] (0, 0) -- node[above]{\itshape becomes} (0.17\linewidth, 0);
 \end{tikzpicture}
-}
+}\hfill
 \begin{minipage}{0.43\linewidth}
 \begin{lstlisting}[language={[ARM]Assembler}]
 getFoo:
@@ -1035,12 +1035,12 @@ void setFoo(int i)
     foo = i;
 }
 \end{ccode}
-\end{minipage}
+\end{minipage}\hfill
 \raisebox{-1ex}{
 \begin{tikzpicture}
 \draw [->, line width=1pt] (0, 0) -- node[above]{\itshape becomes} (0.17\linewidth, 0);
 \end{tikzpicture}
-}
+}\hfill
 \begin{minipage}{0.43\linewidth}
 \begin{lstlisting}[language={[ARM]Assembler}]
 setFoo:
