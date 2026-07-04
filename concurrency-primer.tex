@@ -235,18 +235,22 @@ Modern \textsc{CPU}s operate in a fashion far more complex than what traditional
 like those depicted in \fig{fig:pipeline}, suggest.
 They are equipped with multiple data paths tailored for various instruction types and schedulers that reorder and direct instructions through these paths.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio,width=0.7\linewidth]{images/pipeline}
-\captionof{figure}{A traditional five-stage \textsc{CPU} pipeline with fetch, decode, execute, memory access, and write-back stages.
+\caption{A traditional five-stage \textsc{CPU} pipeline with fetch, decode, execute, memory access, and write-back stages.
                    Modern designs are much more complicated, often reordering instructions on the fly.}
 \label{fig:pipeline}
+\end{figure}
 
 It is quite common to form oversimplified views about memory operations.
 Picturing a multi-core processor setup might lead us to envision a model similar to \fig{fig:ideal-machine},
 wherein each core alternately accesses and manipulates the system's memory.
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.8\linewidth]{ideal-machine}
-\captionof{figure}{An idealized multi-core processor where cores
+\caption{An idealized multi-core processor where cores
 take turns accessing a single shared set of memory.}
 \label{fig:ideal-machine}
+\end{figure}
 
 The reality is far from straightforward.
 Although processor speeds have surged exponentially in recent decades,
@@ -258,9 +262,11 @@ Ensuring this memory system remains \introduce{coherent},
 thus allowing writes made by one core to be observable by others even when utilizing different caches,
 presents a significant challenge.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.8\linewidth]{images/mp-cache}
-\captionof{figure}{A common memory hierarchy for modern multi-core processors}
+\caption{A common memory hierarchy for modern multi-core processors}
 \label{fig:dunnington}
+\end{figure}
 
 The myriad complexities within multithreaded programs on multi-core \textsc{CPU}s lead to a lack of a uniform concept of ``now''.
 Establishing some semblance of order among threads requires a concerted effort involving the hardware,
@@ -352,9 +358,11 @@ atomicity is fairly straightforward:
 just make sure that any variables used for thread synchronization
 are no larger than the \textsc{CPU} word size.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.8\linewidth]{images/atomicity}
-\captionof{figure}{A flowchart depicting how two concurrent programs communicate and coordinate through a shared resource to achieve a goal, accessing the shared resource.}
+\caption{A flowchart depicting how two concurrent programs communicate and coordinate through a shared resource to achieve a goal, accessing the shared resource.}
 \label{fig:atomicity}
+\end{figure}
 
 Summary of concepts from the first three sections, as shown in \fig{fig:atomicity}.
 In \secref{background}, we observe the importance of maintaining the correct order of operations: t3 \to t4 \to t5 \to t6 \to t7, so that two concurrent programs can function as expected.
@@ -396,9 +404,11 @@ After achieving this goal, we can further explore how concurrent threads can coo
 In \secref{atomicity}, there is a need for atomicity to ensure that a group of operations is not only sequentially executed but also completes without being interrupted by operation from other threads.
 This establishes correct order of operations from different threads.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.6\linewidth]{images/atomic-rmw}
-\captionof{figure}{Exchange, Test and Set, Fetch and…, Compare and Swap can all be transformed into atomic RMW operations, ensuring that operations like t1 \to t2 \to t3 will become an atomic step.}
+\caption{Exchange, Test and Set, Fetch and…, Compare and Swap can all be transformed into atomic RMW operations, ensuring that operations like t1 \to t2 \to t3 will become an atomic step.}
 \label{fig:atomic-rmw}
+\end{figure}
 
 Atomic loads and stores are all well and good when we do not need to consider the previous state of atomic variables, but sometimes we need to read a value, modify it, and write it back as a single atomic step.
 As shown in \fig{fig:atomic-rmw}, the modification is based on the previous state that is visible for reading, and the result is then written back.
@@ -417,10 +427,12 @@ There are a few common \introduce{read-modify-write} (\textsc{RMW}) operations t
 In \cplusplus{}, they are represented as member functions of \cpp|std::atomic<T>|.
 In \clang{}, they are freestanding functions.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=1\linewidth]{images/atomic-types}
-\captionof{figure}{Test and Set (Left) and Compare and Swap (Right) leverage their functionality of checking and their atomicity to make other RMW operations perform atomically.
+\caption{Test and Set (Left) and Compare and Swap (Right) leverage their functionality of checking and their atomicity to make other RMW operations perform atomically.
 The red color represents atomic RMW operations, while the blue color represents RMW operations that behave atomically.}
 \label{fig:atomic-types}
+\end{figure}
 
 \subsection{Exchange}
 \label{exchange}
@@ -605,13 +617,15 @@ this \introduce{false sharing} must be taken into account.
 One way to avoid it is to pad atomic variables with a cache line of private data, 
 but this is obviously a large space-time trade-off.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.6\linewidth]{images/false-sharing}
-\captionof{figure}{Processor 1 and Processor 2 operate independently on variables A and B. 
+\caption{Processor 1 and Processor 2 operate independently on variables A and B. 
 Simultaneously, they read the cache line containing these two variables. 
 In the next time step, each processor modifies A and B in their private L1 cache separately. 
 Subsequently, both processors write their modified cache line to the shared L2 cache. 
 At this moment, the expansion of the scope of shared resources to encompass cache lines highlights the importance of considering cache coherence issues.}
 \label{fig:false-sharing}
+\end{figure}
 
 Not only shared resources, 
 but we also need to consider shared resources that serve as a communication channel, e.g. spinlock (see \secref{spinlock}). 
@@ -634,12 +648,14 @@ Then the other processors that have not successfully acquired the lock will cont
 resulting in little practical benefit (only one processor gains the lock) and significant communication overhead. 
 This disparity severely limits the scalability of the spin lock.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.9\linewidth]{images/spinlock}
-\captionof{figure}{Three processors use lock as a communication channel to insure the access operations to the shared L2 cache will be correct. 
+\caption{Three processors use lock as a communication channel to insure the access operations to the shared L2 cache will be correct. 
 Processors 2 and 3 are trying to acquire a lock that is held by processor 1. 
 Therefore, when processor 1 unlocks, 
 the state of lock needs to be updated on other processors' private L1 cache.}
 \label{fig:spinlock}
+\end{figure}
 
 \section{Concurrency tools and synchronization mechanisms}
 \label{concurrency-tool}
@@ -718,8 +734,9 @@ obstruction-free includes lock-free and lock-free includes wait-free.
 Achieving wait-free is the most optimal approach, 
 allowing each thread to make progress without being blocked by other threads.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=1 \linewidth]{images/progress-type}
-\captionof{figure}{In a wait-free system, each thread is guaranteed to make progress at every moment because no thread can block others. 
+\caption{In a wait-free system, each thread is guaranteed to make progress at every moment because no thread can block others. 
 This ensures that the overall system can always make progress. 
 In a lock-free system, at Time 1, Thread 1 may cause other threads to wait while it performs its operation. 
 However, even if Thread 1 suspends at Time 2, it does not subsequently block other threads. 
@@ -730,6 +747,7 @@ Thread 2 and Thread 3 are still waiting, preventing the system from making progr
 Therefore, obstruction-free systems may halt progress if one thread is suspended, 
 leading to the potential blocking of other threads and even stalling the system.}
 \label{fig:progress-type}
+\end{figure}
 
 The main goal is that the whole system, 
 which contains all concurrent threads, 
@@ -773,10 +791,12 @@ This is because the producer has not added more tasks to the job queue.
 During this time, the consumers are not busy waiting but rather waiting for the producer to wake it up. 
 This is because the mechanism is an advanced form of mutex lock.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.6\linewidth]{images/spmc-solution1}
-\captionof{figure}{The interaction between the producer and consumer in SPMC Solution 1, 
+\caption{The interaction between the producer and consumer in SPMC Solution 1, 
 including their state transitions.}
 \label{fig:spmc-solution1}
+\end{figure}
 
 The reason why this implementation is not lock-free is: 
 First, if a producer suspends, 
@@ -811,10 +831,12 @@ there is guaranteed job available unless all jobs have been taken by other consu
 Thus, there is no need to wait due to a lack of jobs; 
 the only wait is for acquiring the lock to access the job queue.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=0.7\linewidth]{images/spmc-solution2}
-\captionof{figure}{The interaction between the producer and consumer in Solution 2, 
+\caption{The interaction between the producer and consumer in Solution 2, 
 including their state transitions.}
 \label{fig:spmc-solution2}
+\end{figure}
 
 This implementation is referred to as both locked-based and lock-free. 
 The algorithm is designed such that the producer adds all jobs to the job queue before multiple consumers begin taking them. 
@@ -834,11 +856,13 @@ However, when locks are necessary for concurrent threads to communicate,
 reducing the sharing resource and the granularity of the sharing resource to communicate (e.g., spinlock, mutex lock) is crucial.
 Therefore, to achieve fully lock-free programming, we change the data structure to reduce the granularity of locks.
 
+\begin{figure}[H]
 \includegraphics[keepaspectratio, width=1\linewidth]{images/spmc-solution3}
-\captionof{figure}{The left side shows that the lock protects the entire job queue to ensure exclusive access to its head for multiple threads. 
+\caption{The left side shows that the lock protects the entire job queue to ensure exclusive access to its head for multiple threads. 
 The right side illustrates that each thread has its own slot for accessing jobs, 
 not only achieving exclusivity through data structure but also eliminating the need for shared resources for communication.}
 \label{fig:spmc-solution3}
+\end{figure}
 
 Providing each consumer with their own unique slot to access jobs addresses the problem at its root, 
 directly avoiding competition. 
