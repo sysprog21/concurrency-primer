@@ -32,7 +32,7 @@ typedef struct idle_job {
 enum state { idle, running, cancelled };
 
 typedef struct tpool {
-    atomic_flag initialezed;
+    atomic_flag initialized;
     int size;
     thrd_t *pool;
     atomic_int state;
@@ -100,7 +100,7 @@ static int worker(void *args)
 
 static bool tpool_init(tpool_t *thrd_pool, size_t size)
 {
-    if (atomic_flag_test_and_set(&thrd_pool->initialezed)) {
+    if (atomic_flag_test_and_set(&thrd_pool->initialized)) {
         printf("This thread pool has already been initialized.\n");
         return false;
     }
@@ -150,10 +150,10 @@ static void tpool_destroy(tpool_t *thrd_pool)
     free(thrd_pool->head);
     free(thrd_pool->pool);
     atomic_fetch_and(&thrd_pool->state, 0);
-    atomic_flag_clear(&thrd_pool->initialezed);
+    atomic_flag_clear(&thrd_pool->initialized);
 }
 
-/* Use Bailey–Borwein–Plouffe formula to approximate PI */
+/* Use the Bailey–Borwein–Plouffe formula to approximate PI */
 static void *bbp(void *arg)
 {
     int k = *(int *)arg;
@@ -206,27 +206,27 @@ int main()
     struct tpool_future *futures[PRECISION];
     double bbp_sum = 0;
 
-    tpool_t thrd_pool = { .initialezed = ATOMIC_FLAG_INIT };
+    tpool_t thrd_pool = { .initialized = ATOMIC_FLAG_INIT };
     if (!tpool_init(&thrd_pool, N_THREADS)) {
         printf("failed to init.\n");
         return 0;
     }
-    /* employer ask workers to work */
+    /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
 
-    /* employer wait ... until workers are idle */
+    /* employer waits ... until workers are idle */
     wait_until(&thrd_pool, idle);
 
-    /* employer add more job to the job queue */
+    /* employer adds more jobs to the job queue */
     for (int i = 0; i < PRECISION; i++) {
         bbp_args[i] = i;
         futures[i] = add_job(&thrd_pool, bbp, &bbp_args[i]);
     }
 
-    /* employer ask workers to work */
+    /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
 
-    /* employer wait for the result of job */
+    /* employer waits for the result of the job */
     for (int i = 0; i < PRECISION; i++) {
         tpool_future_wait(futures[i]);
         bbp_sum += *(double *)(futures[i]->result);

@@ -10,7 +10,7 @@ int threadA(void *args)
     do {
         va = atomic_load(&v);
         printf("A: v = %d\n", va);
-        /* Ensure thread B do something before comparing */
+        /* Ensure thread B does something before comparing */
         thrd_sleep(&(struct timespec){ .tv_sec = 1 }, NULL);
     } while (atomic_compare_exchange_strong(&v, &va, va + 10));
     printf("A: v = %d\n", atomic_load(&v));
