@@ -21,6 +21,29 @@ defaults:
     shell: bash
 
 jobs:
+  format:
+    name: Check C formatting (clang-format)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang-format
+
+      - name: Format examples/*.c with examples/.clang-format
+        run: make -C examples format
+
+      - name: Fail if formatting produced changes
+        run: |
+          if ! git diff --exit-code -- examples/; then
+            echo "::error::examples/*.c is not formatted; run 'make -C examples format' and commit the result."
+            exit 1
+          fi
+
   build:
     name: Build PDF
     runs-on: ubuntu-latest

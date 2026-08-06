@@ -8,3 +8,5 @@ check: all
 	./rmw_example
 	./rmw_example_aba
 	./simple_aba_example 
+format:
+	clang-format -i --style=file *.c
