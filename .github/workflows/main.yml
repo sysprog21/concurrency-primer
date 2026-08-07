@@ -74,8 +74,8 @@ jobs:
     name: Build PDF
     runs-on: ubuntu-latest
     # Pinned by digest so a future texlive/texlive:latest push cannot
-    # silently change the rendered PDF or break the build.
-    # Digest as of 2026-05-10 (texlive/texlive:latest).
+    # silently change the rendered PDF or break the build. Bumped by
+    # hand; digest taken 2026-05-10.
     container: texlive/texlive@sha256:a38949128a1828f251bb5b4b2ec945644eb4962ce3adae1996f5edc839629bd1
     timeout-minutes: 30
     steps:
