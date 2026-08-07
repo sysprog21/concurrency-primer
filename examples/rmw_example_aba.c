@@ -276,7 +276,12 @@ int main()
         tpool_future_destroy(futures[i]);
     }
 
-    /* employer destroys the job queue and lays workers off */
+    /* employer destroys the job queue and lays workers off. Wait for the
+     * workers to park first: tpool_destroy reports on a pool it cancels
+     * while running, and a completed future does not by itself mean the
+     * last worker has published idle.
+     */
+    wait_until(&thrd_pool, idle);
     tpool_destroy(&thrd_pool);
     printf("PI calculated with %d terms: %.15f\n", PRECISION, bbp_sum);
     return 0;
