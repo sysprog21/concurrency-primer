@@ -86,6 +86,17 @@ static int worker(void *args)
         if (atomic_load(&thrd_pool->state) == running) {
             /* worker takes the job */
             struct versioned_prev job = atomic_load(&thrd_pool->head->v_prev);
+            /* A failed compare-exchange reloads "job", so the idle job has to
+             * be ruled out on every iteration, not just once up front.
+             */
+            while (job.ptr != &thrd_pool->head->job) {
+                /* compare 16 byte at once */
+                struct versioned_prev next = { .ptr = job.ptr->prev,
+                                               ._version = job._version };
+                if (atomic_compare_exchange_weak(&thrd_pool->head->v_prev, &job,
+                                                 next))
+                    break;
+            }
             /* worker checks if there is only an idle job in the job queue */
             if (job.ptr == &thrd_pool->head->job) {
                 /* worker says it is idle */
@@ -93,14 +104,6 @@ static int worker(void *args)
                 thrd_yield();
                 continue;
             }
-
-            struct versioned_prev next;
-            /* compare 16 byte at once */
-            do {
-                next.ptr = job.ptr->prev;
-                next._version = job._version;
-            } while (!atomic_compare_exchange_weak(&thrd_pool->head->v_prev,
-                                                   &job, next));
 
             job.ptr->future->result =
                 (void *)job.ptr->func(job.ptr->future->arg);
@@ -110,7 +113,7 @@ static int worker(void *args)
             /* worker is idle */
             thrd_yield();
         }
-    };
+    }
     return EXIT_SUCCESS;
 }
 
@@ -203,9 +206,31 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
     job->prev = &thrd_pool->head->job;
     thrd_pool->head->job.next->prev = job;
     thrd_pool->head->job.next = job;
-    if (thrd_pool->head->prev == &thrd_pool->head->job) {
-        thrd_pool->head->prev = job;
-        thrd_pool->head->version += 1;
+
+    struct versioned_prev cur = atomic_load(&thrd_pool->head->v_prev);
+    bool was_empty = cur.ptr == &thrd_pool->head->job;
+    if (was_empty)
+        thrd_pool->head->job.next = &thrd_pool->head->job;
+
+    job->func = func;
+    job->future = future;
+    job->next = thrd_pool->head->job.next;
+    job->prev = &thrd_pool->head->job;
+    thrd_pool->head->job.next->prev = job;
+    thrd_pool->head->job.next = job;
+
+    if (was_empty) {
+        /* Publish the pointer and its version in one 16-byte store. Writing
+         * the two halves separately would let a worker observe the new job
+         * paired with the old version, which is precisely the window the
+         * version number exists to close. This store is unsynchronized: it
+         * relies on the employer only adding jobs while the pool is idle,
+         * which a worker preempted just after its own state check does not
+         * honor. That window is the same one the ABA discussion describes.
+         */
+        struct versioned_prev next = { .ptr = job,
+                                       ._version = cur._version + 1 };
+        atomic_store(&thrd_pool->head->v_prev, next);
         /* the previous job of the idle job is itself */
         thrd_pool->head->job.prev = &thrd_pool->head->job;
     }
