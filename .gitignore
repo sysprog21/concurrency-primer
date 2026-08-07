@@ -6,5 +6,15 @@ concurrency-primer.pdf
 *.toc
 *.fls
 *.fdb_latexmk
+*.xdv
 draftmark.tex
 lstlangarm.sty
+.DS_Store
+
+# built by examples/Makefile
+examples/rmw_example
+examples/rmw_example_aba
+examples/simple_aba_example
+
+# build-flag stamp from examples/Makefile
+examples/.toolchain*

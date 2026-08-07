@@ -24,9 +24,14 @@ concurrency-primer.pdf: lstlangarm.sty lib/codeblock.tex concurrency-primer.tex 
 
 all: concurrency-primer.pdf
 
+# _minted is the current minted cache directory; the suffixed name is what
+# minted v2 used, kept so older working trees still get cleaned.
 clean:
-	rm -f *.dvi *.aux *.log *.ps *.pdf *.out *.bbl *.blg *.lof *.toc *.fdb_latexmk *.fls
-	rm -rf _minted-concurrency-primer
+	rm -f *.dvi *.xdv *.aux *.log *.ps *.pdf *.out *.bbl *.blg *.lof *.toc *.fdb_latexmk *.fls
+	rm -rf _minted _minted-concurrency-primer
+	$(MAKE) -C examples clean
 
 distclean: clean
 	rm -f lstlangarm.sty
+
+.PHONY: all clean distclean
