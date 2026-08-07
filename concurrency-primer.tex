@@ -932,8 +932,11 @@ The execution result would be:
 
 In the example provided, the ABA problem causes thread A to be unaware that variable \cc{v} has been altered.
 Since the comparison result indicates that \cc{v} is unchanged, \cc{v + 10} is swapped in.
-Here, sleeping is only used to ensure the occurrence of the ABA problem.
-In a real-world scenario, instead of sleeping, thread A could be paused by a context switch to another task, including preemption by a higher-priority task.
+The two flags pin the interleaving down rather than leaving it to the scheduler:
+\cc{a_has_read} holds thread B back until A has loaded \cc{v},
+since B finishing first would leave nothing for A to be misled about,
+and \cc{b_done} holds A back until B has changed \cc{v} and changed it back.
+In a real-world scenario, instead of this handshake, thread A could be paused by a context switch to another task, including preemption by a higher-priority task.
 This example seems harmless, but things can get nasty when atomic \textsc{RMW} operations are used in more complex data structures.
 
 In a broader context, the ABA problem occurs when changes occur between loading and comparing, but the comparing mechanism is unable to identify that the state of the target object is not the latest, yielding a false positive result.
