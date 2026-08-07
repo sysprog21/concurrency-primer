@@ -249,7 +249,7 @@ static inline void wait_until(tpool_t *thrd_pool, int state)
         thrd_yield();
 }
 
-int main()
+int main(void)
 {
     int bbp_args[PRECISION];
     struct tpool_future *futures[PRECISION];
@@ -258,7 +258,7 @@ int main()
     tpool_t thrd_pool = { .initialized = ATOMIC_FLAG_INIT };
     if (!tpool_init(&thrd_pool, N_THREADS)) {
         printf("failed to init.\n");
-        return 0;
+        return EXIT_FAILURE;
     }
     /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
@@ -270,15 +270,38 @@ int main()
     for (int i = 0; i < PRECISION; i++) {
         bbp_args[i] = i;
         futures[i] = add_job(&thrd_pool, bbp, &bbp_args[i]);
+        if (!futures[i]) {
+            printf("Failed to add job %d.\n", i);
+            /* Jobs handed out before this point own a future each, and a
+             * worker that claims one frees the job but not the future. Let
+             * them drain so those futures can be reclaimed here.
+             */
+            atomic_store(&thrd_pool.state, running);
+            for (int j = 0; j < i; j++) {
+                tpool_future_wait(futures[j]);
+                tpool_future_destroy(futures[j]);
+            }
+            /* the pool is drained, so let it say so */
+            wait_until(&thrd_pool, idle);
+            tpool_destroy(&thrd_pool);
+            return EXIT_FAILURE;
+        }
     }
 
     /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
 
     /* employer waits for the result of the job */
+    bool complete = true;
     for (int i = 0; i < PRECISION; i++) {
         tpool_future_wait(futures[i]);
-        bbp_sum += *(double *)(futures[i]->result);
+        /* bbp returns NULL if it could not allocate its result */
+        if (futures[i]->result)
+            bbp_sum += *(double *)(futures[i]->result);
+        else {
+            printf("Job %d produced no result.\n", i);
+            complete = false;
+        }
         tpool_future_destroy(futures[i]);
     }
 
@@ -290,5 +313,5 @@ int main()
     wait_until(&thrd_pool, idle);
     tpool_destroy(&thrd_pool);
     printf("PI calculated with %d terms: %.15f\n", PRECISION, bbp_sum);
-    return 0;
+    return complete ? EXIT_SUCCESS : EXIT_FAILURE;
 }
