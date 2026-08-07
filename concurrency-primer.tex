@@ -564,11 +564,16 @@ To take a job without being taken by another worker halfway through, we need to 
 Otherwise, the last job is under race.
 The while loop in the function \monobox{worker},
 \begin{ccode}
-while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                       job->prev)) {
+while (job != &thrd_pool->head->job &&
+       !atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                     job->prev)) {
 }
 \end{ccode}
-, keeps trying to claim the job atomically until success.
+, keeps trying to claim the job atomically until it succeeds.
+A failed compare-exchange writes the current value back into \cc|job|,
+so the guard is re-evaluated on every iteration:
+another worker may have taken the last job in the meantime,
+leaving the idle job, which must never be claimed.
 
 Built-in post increment and decrement operators and compound assignment on atomic objects, such as \monobox{++} and \monobox{+=}, are read-modify-write atomic operations with total sequentially consistent ordering as well. 
 They behave equivalently to a \cc|do while| loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
@@ -939,8 +944,9 @@ In the \monobox{worker} function, we have a thread trying to claim the job.
 \begin{ccode}
     job_t *job = atomic_load(&thrd_pool->head->prev);
     ...
-    while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                           job->prev))
+    while (job != &thrd_pool->head->job &&
+           !atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                         job->prev))
         ;
 \end{ccode}
 

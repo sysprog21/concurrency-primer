@@ -77,6 +77,13 @@ static int worker(void *args)
         if (atomic_load(&thrd_pool->state) == running) {
             /* worker takes the job */
             job_t *job = atomic_load(&thrd_pool->head->prev);
+            /* A failed compare-exchange reloads "job", so the idle job has to
+             * be ruled out on every iteration, not just once up front.
+             */
+            while (job != &thrd_pool->head->job &&
+                   !atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                                 job->prev))
+                ;
             /* worker checks if there is only an idle job in the job queue */
             if (job == &thrd_pool->head->job) {
                 /* worker says it is idle */
@@ -84,9 +91,6 @@ static int worker(void *args)
                 thrd_yield();
                 continue;
             }
-            while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                                 job->prev))
-                ;
             job->future->result = (void *)job->func(job->future->arg);
             atomic_flag_clear(&job->future->flag);
             free(job);
@@ -94,7 +98,7 @@ static int worker(void *args)
             /* worker is idle */
             thrd_yield();
         }
-    };
+    }
     return EXIT_SUCCESS;
 }
 
