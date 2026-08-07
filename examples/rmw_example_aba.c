@@ -200,13 +200,11 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
         return NULL;
     }
 
-    job->func = func;
-    job->future = future;
-    job->next = thrd_pool->head->job.next;
-    job->prev = &thrd_pool->head->job;
-    thrd_pool->head->job.next->prev = job;
-    thrd_pool->head->job.next = job;
-
+    /* Workers pop from the back and free as they go, but nothing updates the
+     * front link on the way, so once the queue has drained head->job.next
+     * still names the last job freed. Drop it before linking, otherwise the
+     * writes below land in freed memory.
+     */
     struct versioned_prev cur = atomic_load(&thrd_pool->head->v_prev);
     bool was_empty = cur.ptr == &thrd_pool->head->job;
     if (was_empty)

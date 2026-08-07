@@ -184,13 +184,22 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
         return NULL;
     }
 
+    /* Workers pop from the back and free as they go, but nothing updates the
+     * front link on the way, so once the queue has drained head->job.next
+     * still names the last job freed. Drop it before linking, otherwise the
+     * writes below land in freed memory.
+     */
+    bool was_empty = thrd_pool->head->prev == &thrd_pool->head->job;
+    if (was_empty)
+        thrd_pool->head->job.next = &thrd_pool->head->job;
+
     job->func = func;
     job->future = future;
     job->next = thrd_pool->head->job.next;
     job->prev = &thrd_pool->head->job;
     thrd_pool->head->job.next->prev = job;
     thrd_pool->head->job.next = job;
-    if (thrd_pool->head->prev == &thrd_pool->head->job) {
+    if (was_empty) {
         thrd_pool->head->prev = job;
         /* the previous job of the idle job is itself */
         thrd_pool->head->job.prev = &thrd_pool->head->job;
