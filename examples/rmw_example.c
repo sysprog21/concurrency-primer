@@ -117,6 +117,8 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
     thrd_pool->pool = malloc(sizeof(thrd_t) * size);
     if (!thrd_pool->pool) {
         printf("Failed to allocate thread identifiers.\n");
+        /* release the claim, otherwise the pool can never be initialized */
+        atomic_flag_clear(&thrd_pool->initialized);
         return false;
     }
 
@@ -127,6 +129,8 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
         aligned_alloc(_Alignof(idle_job_t), sizeof(idle_job_t));
     if (!idle_job) {
         printf("Failed to allocate idle job.\n");
+        free(thrd_pool->pool);
+        atomic_flag_clear(&thrd_pool->initialized);
         return false;
     }
 
@@ -140,8 +144,28 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
     thrd_pool->size = size;
 
     /* employer hires many workers */
-    for (size_t i = 0; i < size; i++)
-        thrd_create(thrd_pool->pool + i, worker, thrd_pool);
+    for (size_t i = 0; i < size; i++) {
+        if (thrd_create(thrd_pool->pool + i, worker, thrd_pool) !=
+            thrd_success) {
+            printf("Failed to create worker %zu.\n", i);
+            /* lay off whoever was already hired before giving up */
+            atomic_store(&thrd_pool->state, cancelled);
+            while (i--)
+                thrd_join(thrd_pool->pool[i], NULL);
+            free(idle_job);
+            free(thrd_pool->pool);
+            /* init undoes itself completely, so there is nothing left for
+             * tpool_destroy to reclaim and the caller must not call it.
+             * Clear the fields anyway, so a later tpool_init has no stale
+             * pointer or count to trip over.
+             */
+            thrd_pool->pool = NULL;
+            thrd_pool->head = NULL;
+            thrd_pool->size = 0;
+            atomic_flag_clear(&thrd_pool->initialized);
+            return false;
+        }
+    }
 
     return true;
 }
