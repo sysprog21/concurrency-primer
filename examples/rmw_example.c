@@ -172,14 +172,18 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
 
 static void tpool_destroy(tpool_t *thrd_pool)
 {
-    if (atomic_exchange(&thrd_pool->state, cancelled))
+    if (atomic_exchange(&thrd_pool->state, cancelled) == running)
         printf("Thread pool cancelled with jobs still running.\n");
 
     for (int i = 0; i < thrd_pool->size; i++)
         thrd_join(thrd_pool->pool[i], NULL);
 
+    /* Workers are all joined, so the queue is ours alone now. Unclaimed jobs
+     * own a future that nobody will ever wait on; free both.
+     */
     while (thrd_pool->head->prev != &thrd_pool->head->job) {
         job_t *job = thrd_pool->head->prev->prev;
+        tpool_future_destroy(thrd_pool->head->prev->future);
         free(thrd_pool->head->prev);
         thrd_pool->head->prev = job;
     }
