@@ -33,3 +33,21 @@ $ lualatex -halt-on-error -shell-escape concurrency-primer.tex
 until it no longer warns, "Label(s) may have changed. Rerun to get cross-references right."
 
 Enjoy a typeset `concurrency-primer.pdf`.
+
+The build fetches `lstlangarm.sty` with `wget`, so the first run needs network access.
+
+## Building the examples
+
+The programs under `examples/` are listed in the text and can be built and run on their own:
+```shell
+$ make -C examples check     # build all three and run them
+$ make -C examples format    # reformat to examples/.clang-format
+```
+
+They use C11 threads (`<threads.h>`), so they need a libc that provides them, such as glibc 2.28 or newer.
+They do not build on macOS, whose libc omits C11 threads.
+
+`rmw_example_aba` claims a job with a double-width compare-and-swap.
+On x86-64 the Makefile passes `-mcx16` to enable `cmpxchg16b`.
+It also links against libatomic whenever the toolchain has it, on any architecture,
+because some compilers still route 16-byte atomic loads and stores through libatomic even with `-mcx16`.
