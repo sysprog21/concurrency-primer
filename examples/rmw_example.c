@@ -23,7 +23,11 @@ typedef struct job {
 } job_t;
 
 typedef struct idle_job {
-    _Atomic(job_t *) prev;
+    /* Padding alone only sizes the struct; the alignment is what keeps "prev"
+     * off a cache line shared with anything else, and it requires an
+     * allocation aligned to match. See tpool_init.
+     */
+    _Alignas(CACHE_LINE_SIZE) _Atomic(job_t *) prev;
     char padding[CACHE_LINE_SIZE -
                  sizeof(_Atomic(job_t *))]; /* avoid false sharing */
     job_t job;
@@ -116,7 +120,11 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
         return false;
     }
 
-    idle_job_t *idle_job = malloc(sizeof(idle_job_t));
+    /* aligned_alloc, not malloc: the cache line padding in idle_job_t is only
+     * worth anything if the allocation starts on a cache line boundary.
+     */
+    idle_job_t *idle_job =
+        aligned_alloc(_Alignof(idle_job_t), sizeof(idle_job_t));
     if (!idle_job) {
         printf("Failed to allocate idle job.\n");
         return false;

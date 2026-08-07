@@ -23,7 +23,12 @@ typedef struct job {
 } job_t;
 
 typedef struct idle_job {
-    union {
+    /* Padding alone only sizes the struct; the alignment is what keeps the
+     * union off a cache line shared with anything else, and it is also what
+     * guarantees the 16-byte alignment a double-width CAS requires. It needs
+     * an allocation aligned to match: see tpool_init.
+     */
+    _Alignas(CACHE_LINE_SIZE) union {
         struct {
             _Atomic(job_t *) prev;
             unsigned long long version;
@@ -131,7 +136,12 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
         return false;
     }
 
-    idle_job_t *idle_job = malloc(sizeof(idle_job_t));
+    /* aligned_alloc, not malloc: the double-width CAS on v_prev needs the
+     * union 16-byte aligned, and the cache line padding is only worth
+     * anything if the allocation starts on a cache line boundary.
+     */
+    idle_job_t *idle_job =
+        aligned_alloc(_Alignof(idle_job_t), sizeof(idle_job_t));
     if (!idle_job) {
         printf("Failed to allocate idle job.\n");
         return false;
