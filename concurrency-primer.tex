@@ -564,11 +564,16 @@ To take a job without being taken by another worker halfway through, we need to 
 Otherwise, the last job is under race.
 The while loop in the function \monobox{worker},
 \begin{ccode}
-while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                       job->prev)) {
+while (job != &thrd_pool->head->job &&
+       !atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                     job->prev)) {
 }
 \end{ccode}
-, keeps trying to claim the job atomically until success.
+, keeps trying to claim the job atomically until it succeeds.
+A failed compare-exchange writes the current value back into \cc|job|,
+so the guard is re-evaluated on every iteration:
+another worker may have taken the last job in the meantime,
+leaving the idle job, which must never be claimed.
 
 Built-in post increment and decrement operators and compound assignment on atomic objects, such as \monobox{++} and \monobox{+=}, are read-modify-write atomic operations with total sequentially consistent ordering as well. 
 They behave equivalently to a \cc|do while| loop. See \clang{}11 standard 6.5.2.4 and 6.5.16.2 for more details.
@@ -927,8 +932,11 @@ The execution result would be:
 
 In the example provided, the ABA problem causes thread A to be unaware that variable \cc{v} has been altered.
 Since the comparison result indicates that \cc{v} is unchanged, \cc{v + 10} is swapped in.
-Here, sleeping is only used to ensure the occurrence of the ABA problem.
-In a real-world scenario, instead of sleeping, thread A could be paused by a context switch to another task, including preemption by a higher-priority task.
+The two flags pin the interleaving down rather than leaving it to the scheduler:
+\cc{a_has_read} holds thread B back until A has loaded \cc{v},
+since B finishing first would leave nothing for A to be misled about,
+and \cc{b_done} holds A back until B has changed \cc{v} and changed it back.
+In a real-world scenario, instead of this handshake, thread A could be paused by a context switch to another task, including preemption by a higher-priority task.
 This example seems harmless, but things can get nasty when atomic \textsc{RMW} operations are used in more complex data structures.
 
 In a broader context, the ABA problem occurs when changes occur between loading and comparing, but the comparing mechanism is unable to identify that the state of the target object is not the latest, yielding a false positive result.
@@ -939,8 +947,9 @@ In the \monobox{worker} function, we have a thread trying to claim the job.
 \begin{ccode}
     job_t *job = atomic_load(&thrd_pool->head->prev);
     ...
-    while (!atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
-                                           job->prev))
+    while (job != &thrd_pool->head->job &&
+           !atomic_compare_exchange_weak(&thrd_pool->head->prev, &job,
+                                         job->prev))
         ;
 \end{ccode}
 
@@ -1527,41 +1536,54 @@ Although it may seem like a niche requirement, such scenarios are quite common.
 
 Relaxed operations are beneficial for managing flags shared between threads.
 For example, a worker thread in thread pool in \secref{rmw} might continuously run until it receives a cancelled signal:
-\begin{cppcode}
+\begin{ccode}
 while (1) {
     if (atomic_load_explicit(&thrd_pool->state, memory_order_relaxed) == cancelled)
         return EXIT_SUCCESS;
-    if (atomic_load_explicit(&thrd_pool->state, memory_order_relaxed) == running) {
-        // claim the job
-        job_t *job = atomic_load(&thrd_pool->head->prev);
-        while (!atomic_compare_exchange_weak_explicit(&thrd_pool->head->prev, &job,
-                                               job->prev, memory_order_release, 
-                                               memory_order_relaxed)) {
-        }
-        if (job->args == NULL) {
+    /* acquire: unlike cancelled, this one announces a filled queue */
+    if (atomic_load_explicit(&thrd_pool->state, memory_order_acquire) == running) {
+        /* claim the job */
+        job_t *job = atomic_load_explicit(&thrd_pool->head->prev,
+                                          memory_order_acquire);
+        while (job != &thrd_pool->head->job &&
+               !atomic_compare_exchange_weak_explicit(&thrd_pool->head->prev,
+                                                      &job, job->prev,
+                                                      memory_order_release,
+                                                      memory_order_acquire))
+            ;
+        if (job == &thrd_pool->head->job) {
             atomic_store(&thrd_pool->state, idle);
+            thrd_yield();
         } else {
-            void *ret_value = job->func(job->args);
-            job->future->result = ret_value;
+            job->future->result = job->func(job->future->arg);
             atomic_flag_clear(&job->future->flag);
-            free(job->args);
-            free(job); // could cause dangling pointer in other threads
+            free(job); /* could cause dangling pointer in other threads */
         }
     } else {
-        /* To auto run when jobs added, set status to running if job queue is not empty.
-         * As long as the producer is protected */
         thrd_yield();
-        continue;
     }
-};
-\end{cppcode}
-We do not care if the contents of the loop are rearranged around the load.
+}
+\end{ccode}
+We do not care if the contents of the loop are rearranged around that load.
 Nothing bad will happen so long as \texttt{cancelled} is only used to tell the worker to exit, and not to ``announce'' any new data.
+The very next line shows where that condition stops holding.
+\cc{running} does announce data, because the employer fills the queue and only then switches the pool to it,
+so that load is an acquire and pairs with the employer's store.
+Everything the employer wrote beforehand, including the links it rewrote on jobs that were already queued, is ordered by that one pairing.
+It is the whole reason the worker may then walk the queue at all,
+and it holds only for as long as the employer confines its edits to a pool that is idle.
 
-Finally, relaxed loads are commonly used with \textsc{CAS} loops.
-Continue the example above,
-a \textsc{CAS} loop is performed to claim a job.
-All of the loads can be relaxed as we do not need to enforce any order until we have successfully modified our value.
+Finally, relaxed loads are commonly used with \textsc{CAS} loops,
+where a failed comparison means nothing more than ``try again''
+and no order needs enforcing until we have successfully modified our value.
+The loop above is not one of those cases, which is why both of the reads it makes on \cc{head->prev} are acquires:
+it follows the pointer it reads, taking \cc{job->prev} to compute the next candidate and dereferencing the job once the claim succeeds.
+A release on the successful \textsc{CAS} only keeps the claiming thread's own earlier work from drifting past it;
+it constrains nothing that comes afterwards,
+so it cannot make the employer's writes visible to the reads that follow the claim.
+That has to come from the reading side, and there are two reads here, both of which need it:
+the initial load, and the reload that a failed compare-exchange performs, which is why the failure order is an acquire rather than relaxed.
+A \textsc{CAS} loop that only re-reads a value it never follows can leave every load relaxed.
 
 \subsubsection{Acquire-Release}
 

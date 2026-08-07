@@ -23,7 +23,12 @@ typedef struct job {
 } job_t;
 
 typedef struct idle_job {
-    union {
+    /* Padding alone only sizes the struct; the alignment is what keeps the
+     * union off a cache line shared with anything else, and it is also what
+     * guarantees the 16-byte alignment a double-width CAS requires. It needs
+     * an allocation aligned to match: see tpool_init.
+     */
+    _Alignas(CACHE_LINE_SIZE) union {
         struct {
             _Atomic(job_t *) prev;
             unsigned long long version;
@@ -86,6 +91,17 @@ static int worker(void *args)
         if (atomic_load(&thrd_pool->state) == running) {
             /* worker takes the job */
             struct versioned_prev job = atomic_load(&thrd_pool->head->v_prev);
+            /* A failed compare-exchange reloads "job", so the idle job has to
+             * be ruled out on every iteration, not just once up front.
+             */
+            while (job.ptr != &thrd_pool->head->job) {
+                /* compare 16 byte at once */
+                struct versioned_prev next = { .ptr = job.ptr->prev,
+                                               ._version = job._version };
+                if (atomic_compare_exchange_weak(&thrd_pool->head->v_prev, &job,
+                                                 next))
+                    break;
+            }
             /* worker checks if there is only an idle job in the job queue */
             if (job.ptr == &thrd_pool->head->job) {
                 /* worker says it is idle */
@@ -93,14 +109,6 @@ static int worker(void *args)
                 thrd_yield();
                 continue;
             }
-
-            struct versioned_prev next;
-            /* compare 16 byte at once */
-            do {
-                next.ptr = job.ptr->prev;
-                next._version = job._version;
-            } while (!atomic_compare_exchange_weak(&thrd_pool->head->v_prev,
-                                                   &job, next));
 
             job.ptr->future->result =
                 (void *)job.ptr->func(job.ptr->future->arg);
@@ -110,7 +118,7 @@ static int worker(void *args)
             /* worker is idle */
             thrd_yield();
         }
-    };
+    }
     return EXIT_SUCCESS;
 }
 
@@ -125,12 +133,21 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
     thrd_pool->pool = malloc(sizeof(thrd_t) * size);
     if (!thrd_pool->pool) {
         printf("Failed to allocate thread identifiers.\n");
+        /* release the claim, otherwise the pool can never be initialized */
+        atomic_flag_clear(&thrd_pool->initialized);
         return false;
     }
 
-    idle_job_t *idle_job = malloc(sizeof(idle_job_t));
+    /* aligned_alloc, not malloc: the double-width CAS on v_prev needs the
+     * union 16-byte aligned, and the cache line padding is only worth
+     * anything if the allocation starts on a cache line boundary.
+     */
+    idle_job_t *idle_job =
+        aligned_alloc(_Alignof(idle_job_t), sizeof(idle_job_t));
     if (!idle_job) {
         printf("Failed to allocate idle job.\n");
+        free(thrd_pool->pool);
+        atomic_flag_clear(&thrd_pool->initialized);
         return false;
     }
 
@@ -145,22 +162,46 @@ static bool tpool_init(tpool_t *thrd_pool, size_t size)
     thrd_pool->size = size;
 
     /* employer hires many workers */
-    for (size_t i = 0; i < size; i++)
-        thrd_create(thrd_pool->pool + i, worker, thrd_pool);
+    for (size_t i = 0; i < size; i++) {
+        if (thrd_create(thrd_pool->pool + i, worker, thrd_pool) !=
+            thrd_success) {
+            printf("Failed to create worker %zu.\n", i);
+            /* lay off whoever was already hired before giving up */
+            atomic_store(&thrd_pool->state, cancelled);
+            while (i--)
+                thrd_join(thrd_pool->pool[i], NULL);
+            free(idle_job);
+            free(thrd_pool->pool);
+            /* init undoes itself completely, so there is nothing left for
+             * tpool_destroy to reclaim and the caller must not call it.
+             * Clear the fields anyway, so a later tpool_init has no stale
+             * pointer or count to trip over.
+             */
+            thrd_pool->pool = NULL;
+            thrd_pool->head = NULL;
+            thrd_pool->size = 0;
+            atomic_flag_clear(&thrd_pool->initialized);
+            return false;
+        }
+    }
 
     return true;
 }
 
 static void tpool_destroy(tpool_t *thrd_pool)
 {
-    if (atomic_exchange(&thrd_pool->state, cancelled))
+    if (atomic_exchange(&thrd_pool->state, cancelled) == running)
         printf("Thread pool cancelled with jobs still running.\n");
 
     for (int i = 0; i < thrd_pool->size; i++)
         thrd_join(thrd_pool->pool[i], NULL);
 
+    /* Workers are all joined, so the queue is ours alone now. Unclaimed jobs
+     * own a future that nobody will ever wait on; free both.
+     */
     while (thrd_pool->head->prev != &thrd_pool->head->job) {
         job_t *job = thrd_pool->head->prev->prev;
+        tpool_future_destroy(thrd_pool->head->prev->future);
         free(thrd_pool->head->prev);
         thrd_pool->head->prev = job;
     }
@@ -197,15 +238,35 @@ struct tpool_future *add_job(tpool_t *thrd_pool, void *(*func)(void *),
         return NULL;
     }
 
+    /* Workers pop from the back and free as they go, but nothing updates the
+     * front link on the way, so once the queue has drained head->job.next
+     * still names the last job freed. Drop it before linking, otherwise the
+     * writes below land in freed memory.
+     */
+    struct versioned_prev cur = atomic_load(&thrd_pool->head->v_prev);
+    bool was_empty = cur.ptr == &thrd_pool->head->job;
+    if (was_empty)
+        thrd_pool->head->job.next = &thrd_pool->head->job;
+
     job->func = func;
     job->future = future;
     job->next = thrd_pool->head->job.next;
     job->prev = &thrd_pool->head->job;
     thrd_pool->head->job.next->prev = job;
     thrd_pool->head->job.next = job;
-    if (thrd_pool->head->prev == &thrd_pool->head->job) {
-        thrd_pool->head->prev = job;
-        thrd_pool->head->version += 1;
+
+    if (was_empty) {
+        /* Publish the pointer and its version in one 16-byte store. Writing
+         * the two halves separately would let a worker observe the new job
+         * paired with the old version, which is precisely the window the
+         * version number exists to close. This store is unsynchronized: it
+         * relies on the employer only adding jobs while the pool is idle,
+         * which a worker preempted just after its own state check does not
+         * honor. That window is the same one the ABA discussion describes.
+         */
+        struct versioned_prev next = { .ptr = job,
+                                       ._version = cur._version + 1 };
+        atomic_store(&thrd_pool->head->v_prev, next);
         /* the previous job of the idle job is itself */
         thrd_pool->head->job.prev = &thrd_pool->head->job;
     }
@@ -218,7 +279,7 @@ static inline void wait_until(tpool_t *thrd_pool, int state)
         thrd_yield();
 }
 
-int main()
+int main(void)
 {
     int bbp_args[PRECISION];
     struct tpool_future *futures[PRECISION];
@@ -227,7 +288,7 @@ int main()
     tpool_t thrd_pool = { .initialized = ATOMIC_FLAG_INIT };
     if (!tpool_init(&thrd_pool, N_THREADS)) {
         printf("failed to init.\n");
-        return 0;
+        return EXIT_FAILURE;
     }
     /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
@@ -239,20 +300,48 @@ int main()
     for (int i = 0; i < PRECISION; i++) {
         bbp_args[i] = i;
         futures[i] = add_job(&thrd_pool, bbp, &bbp_args[i]);
+        if (!futures[i]) {
+            printf("Failed to add job %d.\n", i);
+            /* Jobs handed out before this point own a future each, and a
+             * worker that claims one frees the job but not the future. Let
+             * them drain so those futures can be reclaimed here.
+             */
+            atomic_store(&thrd_pool.state, running);
+            for (int j = 0; j < i; j++) {
+                tpool_future_wait(futures[j]);
+                tpool_future_destroy(futures[j]);
+            }
+            /* the pool is drained, so let it say so */
+            wait_until(&thrd_pool, idle);
+            tpool_destroy(&thrd_pool);
+            return EXIT_FAILURE;
+        }
     }
 
     /* employer asks workers to work */
     atomic_store(&thrd_pool.state, running);
 
     /* employer waits for the result of the job */
+    bool complete = true;
     for (int i = 0; i < PRECISION; i++) {
         tpool_future_wait(futures[i]);
-        bbp_sum += *(double *)(futures[i]->result);
+        /* bbp returns NULL if it could not allocate its result */
+        if (futures[i]->result)
+            bbp_sum += *(double *)(futures[i]->result);
+        else {
+            printf("Job %d produced no result.\n", i);
+            complete = false;
+        }
         tpool_future_destroy(futures[i]);
     }
 
-    /* employer destroys the job queue and lays workers off */
+    /* employer destroys the job queue and lays workers off. Wait for the
+     * workers to park first: tpool_destroy reports on a pool it cancels
+     * while running, and a completed future does not by itself mean the
+     * last worker has published idle.
+     */
+    wait_until(&thrd_pool, idle);
     tpool_destroy(&thrd_pool);
     printf("PI calculated with %d terms: %.15f\n", PRECISION, bbp_sum);
-    return 0;
+    return complete ? EXIT_SUCCESS : EXIT_FAILURE;
 }

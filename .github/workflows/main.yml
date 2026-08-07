@@ -11,38 +11,64 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded runs on the same ref to save minutes.
+# Cancel superseded PR runs to save minutes, but never interrupt a push to
+# main: that run publishes the release and moves the "latest" tag.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  format:
-    name: Check C formatting (clang-format)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  examples:
+    name: Check C examples
+    # Pinned rather than ubuntu-latest so the toolchain this job installs is
+    # reproducible; each check lives in .ci/ so it can be run locally too.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Install clang-format
+      - name: Cache apt packages
+        uses: actions/cache@v6
+        with:
+          path: ~/apt-cache
+          key: apt-lint-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yml') }}
+
+      - name: Install tools
+        # clang-format-20 specifically: the accepted style is whatever that
+        # release produces, and the image's default clang-format is a
+        # different major version.
         run: |
+          mkdir -p ~/apt-cache
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends clang-format
+          sudo apt-get install -y -o Dir::Cache::Archives="$HOME/apt-cache" \
+            clang-format-20 cppcheck
 
-      - name: Format examples/*.c with examples/.clang-format
-        run: make -C examples format
+      - name: Check trailing newline
+        run: .ci/check-newline.sh
 
-      - name: Fail if formatting produced changes
+      - name: Check clang-format
         run: |
-          if ! git diff --exit-code -- examples/; then
+          .ci/check-format.sh || {
             echo "::error::examples/*.c is not formatted; run 'make -C examples format' and commit the result."
             exit 1
-          fi
+          }
+
+      - name: Security checks
+        run: .ci/check-security.sh
+
+      - name: Static analysis (cppcheck)
+        run: .ci/check-cppcheck.sh
+
+      - name: Build and run the examples
+        # The book embeds these files verbatim, so a program that no longer
+        # compiles, no longer terminates, or no longer prints what the
+        # manuscript quotes ships straight into the PDF.
+        run: make -C examples check
 
   build:
     name: Build PDF
@@ -54,7 +80,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Mark workspace safe for git
         # The texlive container runs as root; git refuses to operate on
@@ -68,8 +94,8 @@ jobs:
           apt-get update -qq
           apt-get install -y --no-install-recommends wget ca-certificates
 
-      - name: Cache TeX intermediates
-        uses: actions/cache@v5
+      - name: Cache TeX intermediates and minted highlights
+        uses: actions/cache@v6
         with:
           path: |
             concurrency-primer.aux
@@ -77,7 +103,27 @@ jobs:
             concurrency-primer.fls
             concurrency-primer.out
             concurrency-primer.toc
-          key: tex-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yml', 'concurrency-primer.tex', 'Makefile', 'lib/**/*.tex', 'examples/**/*') }}
+            _minted
+          # The sources hash changes on nearly every push, so the prefix
+          # fallback below does the real work. A stale aux/toc costs latexmk
+          # one extra pass; _minted entries are content-addressed, so unmatched
+          # ones are ignored rather than reused wrongly.
+          #
+          # lstlangarm.sty stays out of the cache. The Makefile fetches it from
+          # a floating master URL, so a cached copy would pin the build to
+          # whatever revision landed in the cache first.
+          # The workflow file is in the hash because the texlive digest lives
+          # there: a new image means a new pygments, and minted keys its
+          # entries by listing content alone, so stale ones would still match
+          # and the PDF would mix two highlighting styles.
+          # The workflow hash is its own key segment, not just folded into the
+          # whole, so the fallback below can be scoped to it. A bare
+          # "tex-${{ runner.os }}-" prefix would happily restore _minted built
+          # by a different pygments after a digest bump, which is the mixed
+          # highlighting the exact key exists to prevent.
+          key: tex-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yml') }}-${{ hashFiles('concurrency-primer.tex', 'Makefile', 'lib/**/*.tex', 'examples/**/*.c') }}
+          restore-keys: |
+            tex-${{ runner.os }}-${{ hashFiles('.github/workflows/main.yml') }}-
 
       - name: Build PDF
         run: make 2>&1 | tee build.log
@@ -108,19 +154,29 @@ jobs:
 
   release:
     name: Publish latest release
-    needs: build
-    # Release only on direct push to main. PRs run the build job above for
-    # validation but never reach this job, so no "main" tag is ever created.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Both, not just build: latexmk typesets the examples from source and
+    # succeeds whether or not they compile, so only the examples job can stop
+    # a broken program from shipping inside the PDF.
+    needs: [build, examples]
+    # Release on a direct push to main, or on a manual run against main. PRs
+    # run the build job above for validation but never reach this job, so no
+    # "main" tag is ever created.
+    #
+    # workflow_dispatch is the recovery path: when a push's run is lost, and
+    # a queue backlog or a cancelled run is enough to lose one, there is
+    # otherwise no way to publish that commit short of pushing another.
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
+        # A shallow clone suffices; force-moving the tag to HEAD walks no
+        # history, and the remote already has that commit.
+        uses: actions/checkout@v7
 
       - name: Download PDF artifact
         uses: actions/download-artifact@v8
@@ -141,7 +197,7 @@ jobs:
             Source commit: ${{ github.sha }}
 
       - name: Move latest tag to current commit
-        # On the first publish, action-gh-release can create `latest` at the
+        # On the first publish, action-gh-release can create "latest" at the
         # current commit via target_commitish. On later publishes, the Releases
         # API updates assets/body but leaves an existing tag in place, so move
         # the ref only after the upload succeeds.
